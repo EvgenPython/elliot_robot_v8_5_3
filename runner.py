@@ -11,6 +11,7 @@ from analysis_state import load_analysis_state
 from execution_control import inspect_execution_safety_gate
 from live_executor import print_live_execution_report
 from main import main as run_main_cycle, run_m30_decision_cycle
+from market_data import get_market_snapshot
 from mt5_client import connect_mt5, disconnect_mt5
 from pending_executor import (
     PENDING_MAX_H1_BARS,
@@ -35,6 +36,7 @@ from trade_state import (
     get_managed_positions,
 )
 from web_runtime_state import write_runner_status
+from web_market_snapshot import save_web_market_snapshot
 from entry_watch import inspect_entry_trigger
 from entry_check_cycle import run_entry_check
 from decision_clock import (
@@ -89,6 +91,10 @@ MARKET_CLOSED_HEARTBEAT_INTERVAL_SECONDS = 3600
 # При потере MT5 соединения.
 RECONNECT_INTERVAL_SECONDS = 30
 
+# Fresh MT5 candles for the web are refreshed independently
+# from Claude and from the new-entry trading window.
+WEB_MARKET_SNAPSHOT_INTERVAL_SECONDS = 60
+
 
 # ============================================================
 # HELPERS
@@ -124,6 +130,32 @@ def _seconds_since(
             - timestamp
         ).total_seconds(),
     )
+
+
+def _refresh_web_market_snapshot() -> None:
+    """Refresh raw MT5 candles for the web terminal only.
+
+    No Claude calls.
+    No trade-plan changes.
+    No order sending or modification.
+    """
+    try:
+        snapshot = get_market_snapshot(
+            symbol=SYMBOL,
+        )
+
+        if save_web_market_snapshot(snapshot):
+            print(
+                "[WEB SNAPSHOT] Fresh MT5 candles refreshed for web: "
+                f"{snapshot.get('generated_at_fp')}"
+            )
+
+    except Exception as error:
+        print(
+            "[WEB SNAPSHOT WARNING] Fresh candle refresh failed; "
+            "runner continues normally: "
+            f"{type(error).__name__}: {error}"
+        )
 
 
 def _mt5_connection_alive() -> bool:
@@ -418,6 +450,8 @@ def run_forever():
     last_analysis_attempt_h1 = None
     last_analysis_attempt_at = None
 
+    last_web_market_snapshot_at = None
+
     while True:
         try:
             # =================================================
@@ -480,6 +514,14 @@ def run_forever():
                 daily_state=daily_state,
                 status="running",
             )
+
+            # Fresh web candles are independent from Claude/trading gates.
+            if (
+                _seconds_since(last_web_market_snapshot_at)
+                >= WEB_MARKET_SNAPSHOT_INTERVAL_SECONDS
+            ):
+                _refresh_web_market_snapshot()
+                last_web_market_snapshot_at = now_fp()
 
             # =================================================
             # POSITION HOLD — 24/7
