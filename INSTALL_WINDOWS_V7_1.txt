@@ -1,0 +1,42 @@
+УСТАНОВКА ROBOT ELLIOT WINDOWS V7.1
+==================================
+
+1. Остановить старый runner: Ctrl+C в его PowerShell.
+
+2. Сохранить локальные секреты и состояния. Не публиковать эти файлы в Git:
+   config/account.json
+   config/anthropic.json
+   config/web_export.json
+   state/
+   analysis_archive/
+
+3. После git pull/clone открыть PowerShell:
+
+   cd C:\elliot_robot
+   py -3.11 -m venv .venv
+   .\.venv\Scripts\python.exe -m pip install --upgrade pip
+   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+4. Вернуть три локальных config-файла и при необходимости state/archive.
+
+5. Проверить режим исполнения:
+
+   Select-String -Path .\execution_control.py -Pattern "^EXECUTION_MODE =","^DEMO_LIVE_ARMED ="
+
+6. Запустить тесты:
+
+   .\.venv\Scripts\python.exe -X utf8 -m unittest discover
+
+   Ожидаемый итог: Ran 67 tests / OK.
+
+7. Запуск робота:
+
+   .\.venv\Scripts\python.exe -X utf8 -u runner.py
+
+8. Publisher запускается в отдельном PowerShell, если веб уже доступен:
+
+   $env:ROBOT_WEB_API_TOKEN = Read-Host "Вставьте API token"
+   .\.venv\Scripts\python.exe -X utf8 -u web_publisher.py
+
+Не запускайте второй runner. Не показывайте account.json, anthropic.json,
+web_export.json или API token в консольных логах/скриншотах.

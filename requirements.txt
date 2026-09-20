@@ -1,0 +1,4 @@
+anthropic>=0.83.0
+MetaTrader5
+pandas
+python-dateutil

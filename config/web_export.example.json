@@ -1,0 +1,14 @@
+{
+  "enabled": false,
+  "base_url": "https://dashboard.example.com",
+  "engine_id": "xauusd-windows-01",
+  "api_token": "",
+  "api_token_env": "ROBOT_WEB_API_TOKEN",
+  "analysis_endpoint_path": "/api/v1/robot/analysis-events",
+  "market_endpoint_path": "/api/v1/robot/market-snapshot",
+  "runtime_endpoint_path": "/api/v1/robot/runtime-state",
+  "poll_interval_seconds": 5,
+  "runtime_interval_seconds": 15,
+  "timeout_seconds": 10,
+  "max_archive_events_per_pass": 20
+}

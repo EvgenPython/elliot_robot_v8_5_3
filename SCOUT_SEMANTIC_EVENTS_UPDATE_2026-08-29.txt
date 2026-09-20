@@ -1,0 +1,47 @@
+ROBOT ELLIOT — SCOUT SEMANTIC EVENTS UPDATE
+============================================
+
+Дата: 2026-08-29
+
+Цель
+----
+Не запускать повторный дорогой FULL только потому, что уже описанный сильный
+импульс продолжился, обновил экстремум или пробил следующий ожидаемый уровень.
+
+FULL запускается при новом смысловом событии:
+- pullback/correction;
+- retest;
+- base/consolidation;
+- reversal/rejection/false breakout;
+- character, structure, momentum or wave change;
+- scenario invalidation или конкретный reference conflict;
+- новый потенциально торгуемый setup.
+
+FULL не запускается при:
+- same_move / expected_continuation;
+- новом экстремуме внутри той же описанной волны;
+- expected_level_break;
+- простом approaching_level без реакции;
+- low/medium confidence без конкретного нового события.
+
+Cooldown и лимита на количество FULL нет. Если настоящее новое событие
+возникает уже на следующей H1, FULL разрешён немедленно.
+
+Не изменены
+-----------
+- ежедневный обязательный FULL в 08:00 FP;
+- отключение Claude при managed position;
+- FULL_MAP/FULL_DECISION и Reliability V3;
+- Risk Manager, Trade State, Executor и MT5 execution;
+- FundingPips limits;
+- web export;
+- fail-open FULL при ошибке Scout или отсутствии дневного reference.
+
+Проверка
+--------
+python -X utf8 -m unittest discover
+
+Ожидаемый результат:
+Ran 60 tests
+OK
+

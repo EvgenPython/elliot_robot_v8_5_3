@@ -1,0 +1,15 @@
+ROBOT ELLIOT — ELLIOTT/FIBONACCI WEB V6
+========================================
+
+- Claude возвращает компактные классические labels: I..V/A..C для primary,
+  (I)..(V)/(A)..(C) для intermediate, i..v/a..c для minor/micro.
+- Длинные Wave/Sub-wave labels для новых FULL запрещены.
+- Fibonacci остаётся подтверждением читаемой структуры. В web visualization
+  попадают только реально использованные retracement/extension уровни последней
+  значимой ноги с точными anchors и связью с target/invalidation.
+- Полная декоративная Fib-сетка не создаётся.
+- Отдельных Claude-запросов для графика/Fibonacci нет.
+- Risk Manager, Executor, Trade State и execution rules не изменены.
+
+Проверка: python -X utf8 -m unittest discover
+Ожидается: Ran 60 tests / OK.

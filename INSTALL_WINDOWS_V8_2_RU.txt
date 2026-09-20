@@ -1,0 +1,22 @@
+ROBOT ELLIOT V8.2 — ОБНОВЛЕНИЕ WINDOWS-СЕРВЕРА
+================================================
+
+1. Остановите V8.1 через Ctrl+C.
+2. Клонируйте обновлённый GitHub-репозиторий в новую папку.
+3. Перенесите из V8.1 только локальные config/account.json,
+   config/anthropic.json, config/web_export.json, папки state и
+   analysis_archive. Не переносите runner.lock.
+4. Файл config/instruments.json оставьте из V8.2: active_instrument=XAUUSD.
+5. Создайте .venv, установите requirements.txt и выполните:
+
+   .\.venv\Scripts\python.exe -X utf8 -m unittest discover
+
+   Ожидается: Ran 74 tests, OK.
+
+6. Запуск:
+
+   powershell -ExecutionPolicy Bypass -File .\run_runner.ps1
+
+Ни одна будущая пара из future_candidates не запускается автоматически.
+Не меняйте active_instrument без отдельного тестирования и релиза.
+

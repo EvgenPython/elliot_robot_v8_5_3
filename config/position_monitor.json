@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "m15_scout_enabled": true,
+  "deep_review_on_every_closed_h1": true,
+  "deep_review_on_m15_event": true,
+  "retry_after_error_seconds": 300,
+  "automatic_trade_changes": true,
+  "minimum_confidence": "high"
+}

@@ -1,0 +1,47 @@
+WAVEFRAME ROBOT — WINDOWS V8.5.2
+===============================
+
+Execution
+---------
+- Production configuration calls real mt5.order_send() on DEMO accounts.
+- REAL and CONTEST are rejected until allowed_account_modes is changed
+  explicitly.
+- Market, LIMIT and STOP routes use durable SEND_INTENT and reconciliation.
+- Unknown send outcomes are reconciled after restart without duplicate send.
+- Pending TTL is exactly three closed H1 bars unless invalidated/session-ended.
+
+Analysis clock
+--------------
+- D1/H4 market context; H1 owns the trading structure.
+- Every eligible H1 reaches a fresh entry decision even when Scout keeps the
+  existing higher-timeframe map.
+- One additional decision follows the intermediate M30 close at xx:30.
+- M15 confirms the child structure; M5 provides a closed-bar trigger only.
+- Open-position monitoring continues on closed M15 and H1.
+
+Claude reliability
+------------------
+- Cross-process lock serializes all paid Messages API calls.
+- Refusal, max_tokens, incomplete JSON and transient failures are not accepted
+  as analyses.
+- Retries reuse one frozen payload and are journalled before each request.
+- Saved validated responses are recovered before any new paid request.
+- Outcome-unknown has a hard anti-double-billing boundary.
+
+FVG policy
+----------
+- Three closed candles; the wick-to-wick void must be inside the middle body.
+- Only D1/H4/H1 FVG are eligible for display.
+- Python owns geometry and fill status; Claude can validate exact candidates.
+- Only the unmitigated remainder is drawn; fully filled zones are retired.
+
+Verification
+------------
+- Python compileall: required.
+- Offline release gate: 138 tests minimum.
+- Stateful MT5 simulator covers open, pending, fill, cancel, reject, restart,
+  SL/TP modification, broker close and statistics through production code.
+- Network, paid Claude and unmocked MT5 operations are forbidden in tests.
+- Secrets, state, logs, archives and virtual environments are excluded.
+
+Install with INSTALL_WINDOWS_V8_5_2_RU.md only.

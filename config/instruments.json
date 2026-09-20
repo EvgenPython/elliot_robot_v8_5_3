@@ -1,0 +1,13 @@
+{
+  "active_instrument": "XAUUSD",
+  "instruments": [
+    {
+      "symbol": "XAUUSD",
+      "display_name": "Gold / US Dollar",
+      "enabled": true,
+      "analysis_profile": "elliott_full"
+    }
+  ],
+  "future_candidates": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "EURJPY", "GBPJPY", "EURGBP"],
+  "cost_policy": "Only active_instrument is analyzed. Candidates never enable Claude calls."
+}

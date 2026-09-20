@@ -1,0 +1,15 @@
+.venv/
+venv/
+.idea/
+__pycache__/
+*.pyc
+logs/
+debug/
+analysis_archive/
+state/
+diagnostics/
+.env
+token
+config/account.json
+config/anthropic.json
+config/web_export.json

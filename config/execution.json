@@ -1,0 +1,4 @@
+{
+  "trading_enabled": true,
+  "allowed_account_modes": ["DEMO"]
+}

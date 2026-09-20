@@ -1,0 +1,12 @@
+{
+  "api_key": "REPLACE_WITH_YOUR_ANTHROPIC_API_KEY",
+  "model": "claude-sonnet-5",
+  "scout_model": "claude-haiku-4-5-20251001",
+  "timeout_seconds": 1800,
+  "full_max_attempts": 5,
+  "full_retry_delays_seconds": [30, 90, 180, 300],
+  "outcome_unknown_min_delay_seconds": 90,
+  "repair_max_attempts": 2,
+  "scout_max_attempts": 3,
+  "scout_retry_delays_seconds": [30, 90]
+}

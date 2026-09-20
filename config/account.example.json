@@ -1,0 +1,6 @@
+{
+  "login": 12345678,
+  "password": "REPLACE_WITH_MT5_PASSWORD",
+  "server": "Broker-Server",
+  "mt5_path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+}
