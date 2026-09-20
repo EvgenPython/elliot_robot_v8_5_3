@@ -191,6 +191,7 @@ class HourlyDecisionRefreshTests(unittest.TestCase):
             stack.enter_context(patch.object(robot_main, "_load_h1_decision_archive", return_value=None))
             stack.enter_context(patch.object(robot_main, "build_claude_payload", return_value=payload))
             stack.enter_context(patch.object(robot_main, "save_analysis_archive", return_value=archive))
+            stack.enter_context(patch.object(robot_main, "run_trade_decision_pipeline", return_value={"ok": True, "result": decision, "usage": {}}))
             stack.enter_context(patch.object(robot_main, "_run_api_with_retries", return_value={
                 "ok": True, "result": decision, "usage": {}
             }))

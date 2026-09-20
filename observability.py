@@ -22,7 +22,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "8.5.2"
+VERSION = "8.5.3"
 BASE_DIR = Path(__file__).resolve().parent
 RUN_ID = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + f"_{os.getpid()}_" + uuid.uuid4().hex[:8]
 _CONTEXT = contextvars.ContextVar("robot_audit_context", default={})
