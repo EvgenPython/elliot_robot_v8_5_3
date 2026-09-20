@@ -236,6 +236,33 @@ def run_entry_check(symbol: str = "XAUUSD") -> dict:
                 )
                 delivery_recovered = True
             else:
+                # COST OPTIMIZATION V8.5.3  PHASE 2A ENTRY BUDGET
+                # This branch is reached only when there is no already-paid
+                # durable response to recover.
+                from ai_cost_guard import inspect_cycle_budget
+
+                budget = inspect_cycle_budget("ENTRY_CHECK")
+
+                if not budget.get("allowed"):
+                    mark_entry_check_result(
+                        "blocked_daily_cost_budget",
+                        retryable=False,
+                        count_attempt=False,
+                    )
+                    safe_update_analysis_archive(
+                        archive,
+                        note=(
+                            "ENTRY_CHECK skipped before Claude because "
+                            "the daily analysis soft ceiling was reached."
+                        ),
+                    )
+                    return {
+                        "ok": False,
+                        "reason": "DAILY_COST_BUDGET_REACHED",
+                        "archive": str(archive),
+                        "cost_budget": budget,
+                    }
+
                 attempts = list((guard.get("cycle") or {}).get("attempts") or [])
                 previous_failure_class = None
                 if len(attempts) >= 2:

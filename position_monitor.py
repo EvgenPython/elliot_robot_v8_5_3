@@ -462,6 +462,8 @@ def run_position_monitor(symbol: str, due: dict) -> dict:
                     }
         elif due["trigger"] == "position_start":
             deep_trigger = "position_start"
+        elif due["trigger"] == "m15_event":
+            deep_trigger = "m15_event"
         else:
             deep_trigger = "h1_close"
 
@@ -559,3 +561,450 @@ def run_position_monitor(symbol: str, due: dict) -> dict:
             "Проверьте журнал protection и фактический SL/TP в MT5."
         )
         return {"ok": False, "reason": f"{type(error).__name__}: {error}"}
+
+# ============================================================================
+# COST OPTIMIZATION V8.5.3  PHASE 2B POSITION EVENT GATE
+# ============================================================================
+
+_COST_PHASE2B_ORIGINAL_INSPECT_DUE = (
+    inspect_position_monitor_due
+)
+
+_COST_PHASE2B_ORIGINAL_RUN_MONITOR = (
+    run_position_monitor
+)
+
+
+def inspect_position_monitor_due(
+    symbol: str = SYMBOL,
+    managed_positions: list[dict] | None = None,
+    *,
+    tick_fresh: bool = True,
+) -> dict:
+
+    due = (
+        _COST_PHASE2B_ORIGINAL_INSPECT_DUE(
+            symbol=symbol,
+            managed_positions=managed_positions,
+            tick_fresh=tick_fresh,
+        )
+    )
+
+
+    if not (
+        isinstance(due, dict)
+        and due.get("due")
+    ):
+
+        return due
+
+
+    # A newly-opened position gets one initial deep review.
+    if due.get(
+        "trigger"
+    ) == "position_start":
+
+        return due
+
+
+    # Existing position: H1/M15 are now inspected locally first.
+    if due.get(
+        "trigger"
+    ) in {
+        "h1_close",
+        "m15_close",
+    }:
+
+        result = copy.deepcopy(
+            due
+        )
+
+        result[
+            "original_action"
+        ] = result.get(
+            "action"
+        )
+
+        result[
+            "action"
+        ] = "local_position_check"
+
+        return result
+
+
+    return due
+
+
+def _cost_mark_local_position_check(
+    state: dict,
+    due: dict,
+    gate_result: dict,
+) -> dict:
+
+    state = copy.deepcopy(
+        state
+    )
+
+    state[
+        "position_key"
+    ] = due.get(
+        "position_key"
+    )
+
+    state[
+        "last_attempt_key"
+    ] = due.get(
+        "attempt_key"
+    )
+
+    state[
+        "last_attempt_at_fp"
+    ] = now_fp().isoformat()
+
+    state[
+        "last_attempt_ok"
+    ] = True
+
+    state[
+        "last_scout"
+    ] = copy.deepcopy(
+        gate_result
+    )
+
+    state[
+        "last_error"
+    ] = None
+
+    state[
+        "status"
+    ] = "local_position_check"
+
+
+    if due.get(
+        "trigger"
+    ) == "h1_close":
+
+        state[
+            "last_processed_h1"
+        ] = due.get(
+            "h1_time"
+        )
+
+        # Same snapshot already includes the latest M15.
+        state[
+            "last_processed_m15"
+        ] = due.get(
+            "m15_time"
+        )
+
+
+    elif due.get(
+        "trigger"
+    ) == "m15_close":
+
+        state[
+            "last_processed_m15"
+        ] = due.get(
+            "m15_time"
+        )
+
+
+    _save_state(
+        state
+    )
+
+    return state
+
+
+@observe("position")
+def run_position_monitor(
+    symbol: str,
+    due: dict,
+) -> dict:
+
+    if not (
+        isinstance(due, dict)
+        and due.get("due")
+    ):
+
+        return {
+            "ok": False,
+            "reason": "monitor_not_due",
+        }
+
+
+    # ----------------------------------------------------------
+    # Initial position review keeps the existing safe code path.
+    # It is still subject to the dedicated position reserve.
+    # ----------------------------------------------------------
+
+    if due.get(
+        "action"
+    ) != "local_position_check":
+
+        from ai_cost_guard import (
+            inspect_cycle_budget
+        )
+
+        budget = inspect_cycle_budget(
+            "POSITION_REVIEW"
+        )
+
+        if not budget.get(
+            "allowed"
+        ):
+
+            print()
+            print(
+                "[POSITION COST] Initial/deep review skipped: "
+                "position reserve already consumed."
+            )
+
+            return {
+                "ok": True,
+                "kind": "position_budget_blocked",
+                "cost_budget": budget,
+                "order_send_called": False,
+            }
+
+
+        return (
+            _COST_PHASE2B_ORIGINAL_RUN_MONITOR(
+                symbol,
+                due,
+            )
+        )
+
+
+    # ----------------------------------------------------------
+    # $0 deterministic H1/M15 inspection.
+    # ----------------------------------------------------------
+
+    from ai_cost_guard import (
+        inspect_cycle_budget
+    )
+
+    from position_local_event_gate import (
+        inspect_position_event
+    )
+
+
+    state = load_position_monitor_state()
+
+
+    try:
+
+        position_gate = inspect_position_gate(
+            symbol=symbol
+        )
+
+
+        if not position_gate.get(
+            "live_managed"
+        ):
+
+            raise RuntimeError(
+                "Managed open position no longer found."
+            )
+
+
+        snapshot = get_market_snapshot(
+            symbol=symbol
+        )
+
+
+        position_context = (
+            _position_context(
+                position_gate
+            )
+        )
+
+
+        local_result = (
+            inspect_position_event(
+                snapshot=snapshot,
+                position_context=position_context,
+                previous_review=state.get(
+                    "last_review"
+                ),
+                trigger=str(
+                    due.get(
+                        "trigger"
+                    )
+                    or ""
+                ),
+            )
+        )
+
+
+        print()
+        print("=" * 80)
+        print(
+            "LOCAL POSITION EVENT GATE  $0"
+        )
+        print("=" * 80)
+
+        print(
+            "Trigger:       ",
+            due.get("trigger"),
+        )
+
+        print(
+            "Event:         ",
+            local_result.get(
+                "event_kind"
+            ),
+        )
+
+        print(
+            "Deep review:   ",
+            local_result.get(
+                "deep_review_required"
+            ),
+        )
+
+        print(
+            "Critical:      ",
+            local_result.get(
+                "critical"
+            ),
+        )
+
+        print(
+            "Progress:      ",
+            local_result.get(
+                "progress_r"
+            ),
+            "R",
+        )
+
+        print(
+            "Claude cost:   $0"
+        )
+
+        print("=" * 80)
+
+
+        if not local_result.get(
+            "deep_review_required"
+        ):
+
+            _cost_mark_local_position_check(
+                state,
+                due,
+                local_result,
+            )
+
+            print(
+                "[POSITION LOCAL] Нового платного "
+                "POSITION_REVIEW не требуется."
+            )
+
+            return {
+                "ok": True,
+                "kind": "local_position_check",
+                "local_result": local_result,
+                "order_send_called": False,
+            }
+
+
+        # ------------------------------------------------------
+        # Real event exists. Check the separate position budget
+        # before buying Claude.
+        # ------------------------------------------------------
+
+        budget = inspect_cycle_budget(
+            "POSITION_REVIEW"
+        )
+
+
+        if not budget.get(
+            "allowed"
+        ):
+
+            _cost_mark_local_position_check(
+                state,
+                due,
+                {
+                    **local_result,
+                    "budget_blocked": True,
+                },
+            )
+
+            print(
+                "[POSITION COST] Событие обнаружено, "
+                "но отдельный position reserve уже исчерпан."
+            )
+
+            print(
+                "[POSITION COST] Существующие broker SL/TP "
+                "остаются активными; новый Claude review "
+                "не покупается."
+            )
+
+            return {
+                "ok": True,
+                "kind": "position_budget_blocked",
+                "local_result": local_result,
+                "cost_budget": budget,
+                "order_send_called": False,
+            }
+
+
+        # ------------------------------------------------------
+        # Escalate through the ORIGINAL protection path.
+        # Nothing below bypasses its SL/TP validation.
+        # ------------------------------------------------------
+
+        paid_due = copy.deepcopy(
+            due
+        )
+
+        paid_due[
+            "action"
+        ] = "deep_review"
+
+
+        if due.get(
+            "trigger"
+        ) == "m15_close":
+
+            paid_due[
+                "trigger"
+            ] = "m15_event"
+
+
+        print(
+            "[POSITION LOCAL -> DEEP REVIEW] "
+            "Объективное событие найдено; запускается "
+            "компактный resilient POSITION_REVIEW."
+        )
+
+
+        return (
+            _COST_PHASE2B_ORIGINAL_RUN_MONITOR(
+                symbol,
+                paid_due,
+            )
+        )
+
+
+    except Exception as error:
+
+        _mark_failure(
+            state,
+            f"{type(error).__name__}: {error}",
+        )
+
+        print(
+            "[POSITION LOCAL ERROR] "
+            f"{type(error).__name__}: {error}"
+        )
+
+        return {
+            "ok": False,
+            "reason": (
+                f"{type(error).__name__}: {error}"
+            ),
+            "order_send_called": False,
+        }

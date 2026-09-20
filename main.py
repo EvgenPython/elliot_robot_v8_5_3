@@ -1323,6 +1323,28 @@ def run_m30_decision_cycle(
     hourly decision.
     """
 
+
+    # COST OPTIMIZATION V8.5.3  PHASE 2A M30 GATE
+    from ai_cost_guard import paid_m30_enabled
+
+    if not paid_m30_enabled():
+
+        print()
+        print(
+            "[COST POLICY] Платный M30 DECISION отключён."
+        )
+        print(
+            "[COST POLICY] M30/M15/M5 остаются частью "
+            "event-driven H1/ENTRY_CHECK, но отдельный "
+            "Claude-вызов на xx:30 не покупается."
+        )
+
+        return {
+            "ok": True,
+            "reason": "COST_POLICY_M30_DISABLED",
+            "order_send_called": False,
+        }
+
     connected = False
     try:
         if manage_connection:
@@ -5037,144 +5059,225 @@ def main(
                 )
 
             else:
-                # ============================================
-                # 9A. CHEAP SCOUT
-                # ============================================
+                # COST OPTIMIZATION V8.5.3  PHASE 2A LOCAL H1 EVENT GATE
+                #
+                # No paid Scout here. Python does NOT decide direction,
+                # Entry, SL or TP. It only decides whether new market data
+                # justify purchasing a fresh Claude decision.
 
-                scout_resume = _load_resumable_api_archive(
-                    snapshot,
-                    "SCOUT",
+                from ai_local_event_gate import (
+                    inspect_h1_event,
+                    mark_h1_evaluated,
+                    was_h1_evaluated,
                 )
-                if scout_resume is not None:
-                    scout_archive, scout_record = scout_resume
-                    scout_payload = scout_record["payload"]
-                    archived_reference = scout_record.get("previous_reference")
-                    if isinstance(archived_reference, dict):
-                        previous_reference = archived_reference
-                    print()
-                    print(
-                        "[API RESUME] SCOUT продолжает исходный frozen "
-                        f"payload из {scout_archive}."
-                    )
-                else:
-                    print()
-                    print(
-                        "[INFO] Формируем компактный SCOUT payload..."
-                    )
+                from ai_cost_guard import inspect_cycle_budget
 
-                    scout_payload = build_scout_payload(
+                h1_event_key = str(
+                    extract_latest_closed_h1_time(
+                        snapshot
+                    )
+                )
+
+                if was_h1_evaluated(
+                    h1_event_key
+                ):
+
+                    print()
+                    print(
+                        "[LOCAL EVENT GATE] Эта H1 уже была "
+                        "бесплатно проверена и не требовала Claude."
+                    )
+                    print(
+                        "[LOCAL EVENT GATE] Новых платных "
+                        "запросов нет."
+                    )
+                    return
+
+
+                scout_result = inspect_h1_event(
+                    snapshot,
+                    previous_reference,
+                )
+
+                print()
+                print("=" * 80)
+                print(
+                    "LOCAL H1 EVENT GATE  $0"
+                )
+                print("=" * 80)
+                print(
+                    "Material change: "
+                    f"{scout_result.get('material_change')}"
+                )
+                print(
+                    "Possible setup:  "
+                    f"{scout_result.get('possible_setup')}"
+                )
+                print(
+                    "FULL required:   "
+                    f"{scout_result.get('full_analysis_required')}"
+                )
+                print(
+                    "Trigger:         "
+                    f"{scout_result.get('trigger_kind')}"
+                )
+                print(
+                    "Claude cost:     $0"
+                )
+                print("=" * 80)
+
+
+                # Save the free gate result before any possible paid H1 call.
+                scout_payload = build_scout_payload(
+                    snapshot=snapshot,
+                    previous_reference=previous_reference,
+                )
+
+                try:
+
+                    scout_archive = save_analysis_archive(
                         snapshot=snapshot,
+                        cycle_type="LOCAL_EVENT_GATE",
+                        payload=scout_payload,
+                        result=scout_result,
                         previous_reference=previous_reference,
+                        note=(
+                            "Deterministic local H1 event gate. "
+                            "No Claude API request was made."
+                        ),
                     )
 
-                    print_scout_payload_stats(
-                        scout_payload
+                except Exception as error:
+
+                    print()
+                    print(
+                        "[COST SAFETY] Не удалось сохранить "
+                        "LOCAL EVENT GATE; платный H1 Claude "
+                        "НЕ запускается: "
+                        f"{type(error).__name__}: {error}"
+                    )
+                    return
+
+
+                if scout_result.get(
+                    "full_analysis_required"
+                ):
+
+                    full_budget = inspect_cycle_budget(
+                        "FULL_ESCALATED"
                     )
 
-                    save_debug_scout_payload(
-                        scout_payload
-                    )
+                    if not full_budget.get(
+                        "allowed"
+                    ):
 
-                    try:
-                        scout_archive = save_analysis_archive(
-                            snapshot=snapshot,
-                            cycle_type="SCOUT",
-                            payload=scout_payload,
-                            result=None,
-                            previous_reference=previous_reference,
-                            api_attempt={
-                                "status": "PAYLOAD_SAVED_BEFORE_API",
-                                "retry_policy": "CONTROLLED_BOUNDED",
-                            },
-                            note=(
-                                "Scout payload сохранён до платного "
-                                "API-вызова."
-                            ),
-                        )
-                    except Exception as error:
                         print()
                         print(
-                            "[COST SAFETY] Не удалось сохранить Scout "
-                            "payload; Claude API НЕ вызывается: "
-                            f"{type(error).__name__}: {error}"
+                            "[COST BUDGET] Структурное событие "
+                            "обнаружено, но дополнительный FULL "
+                            "сейчас превысил бы дневной soft ceiling."
+                        )
+                        print(
+                            "[COST BUDGET] "
+                            f"spent=${full_budget.get('analysis_spent_usd')}; "
+                            f"soft=${full_budget.get('soft_daily_usd')}."
+                        )
+
+                        mark_h1_evaluated(
+                            h1_event_key,
+                            {
+                                **scout_result,
+                                "budget_blocked": True,
+                            },
                         )
                         return
 
-                scout_run = _run_api_with_retries(
-                    snapshot=snapshot,
-                    api_stage="SCOUT",
-                    cycle_type="SCOUT",
-                    payload_timestamp=scout_payload.get("timestamp"),
-                    archive_path=scout_archive,
-                    api_call=lambda on_preflight, on_response: analyze_scout(
-                        scout_payload,
-                        on_preflight=on_preflight,
-                        on_response=on_response,
-                    ),
-                )
 
-                if not scout_run.get("ok"):
-                    scout_error = scout_run.get("error") or RuntimeError(
-                        "Scout attempts exhausted."
-                    )
-                    scout_result = {
-                        "instrument": SYMBOL,
-                        "timestamp": scout_payload.get("timestamp"),
-                        "material_change": True,
-                        "possible_setup": True,
-                        "full_analysis_required": True,
-                        "confidence": "low",
-                        "trigger_kind": "uncertainty",
-                        "observed_changes": [],
-                        "reason": (
-                            "Scout не удалось получить после controlled "
-                            "attempts; по fail-open policy запускается FULL. "
-                            f"{type(scout_error).__name__}: {scout_error}"
-                        ),
-                        "scout_transport_fallback": (
-                            "RETRIES_EXHAUSTED_ESCALATE_TO_FULL"
-                        ),
-                    }
-                    safe_update_analysis_archive(
-                        scout_archive,
-                        result=scout_result,
-                        note=(
-                            "Scout attempts исчерпаны; вместо пропуска H1 "
-                            "выполняется независимый глубокий FULL."
-                        ),
-                    )
                     full_required = True
-                    analysis_cycle_type = CYCLE_FULL_FALLBACK
+                    analysis_cycle_type = (
+                        CYCLE_FULL_ESCALATED
+                    )
+
                     print()
                     print(
-                        "[SCOUT -> FULL FALLBACK] Scout ответа не дал; "
-                        "H1 не пропускаем, запускаем глубокий FULL."
+                        "[LOCAL EVENT -> FULL] "
+                        "Старшая structural invalidation "
+                        "требует перестройки карты."
                     )
+
+
+                elif not (
+                    scout_result.get(
+                        "material_change"
+                    )
+                    or scout_result.get(
+                        "possible_setup"
+                    )
+                ):
+
+                    mark_h1_evaluated(
+                        h1_event_key,
+                        scout_result,
+                    )
+
+                    print()
+                    print(
+                        "[LOCAL NO EVENT] H1 не дала события, "
+                        "способного изменить торговое решение."
+                    )
+                    print(
+                        "[LOCAL NO EVENT] Claude API НЕ вызывается."
+                    )
+
+                    return
+
+
                 else:
-                    scout_result = scout_run["result"]
 
-                print(
-                    f"[ARCHIVE] Scout сохранён: {scout_archive}"
-                )
-
-                if scout_run.get("ok"):
-                    full_required = bool(
-                        scout_result.get(
-                            "full_analysis_required",
-                            True,
-                        )
+                    h1_budget = inspect_cycle_budget(
+                        "H1_DECISION"
                     )
 
-                if not full_required:
                     print()
                     print(
-                        "[SCOUT NO FULL] Глубокий FULL для этой H1 "
-                        "не требуется."
+                        "[COST BUDGET] "
+                        f"analysis spent=${h1_budget.get('analysis_spent_usd')}; "
+                        f"target=${h1_budget.get('target_daily_usd')}; "
+                        f"soft=${h1_budget.get('soft_daily_usd')}."
                     )
+
+
+                    if not h1_budget.get(
+                        "allowed"
+                    ):
+
+                        mark_h1_evaluated(
+                            h1_event_key,
+                            {
+                                **scout_result,
+                                "budget_blocked": True,
+                            },
+                        )
+
+                        print(
+                            "[COST BUDGET] H1 event найден, "
+                            "но дневной target уже достигнут."
+                        )
+                        print(
+                            "[COST BUDGET] Новый Claude H1 "
+                            "не покупается."
+                        )
+
+                        return
+
+
+                    print()
                     print(
-                        "[SCOUT -> H1 DECISION] Старшую карту не покупаем "
-                        "заново; выполняем свежую проверку входа по H1/M30/M15/M5."
+                        "[LOCAL EVENT -> H1 DECISION] "
+                        "Есть объективное событие; покупаем "
+                        "только компактный TRADE decision."
                     )
+
                     _run_h1_decision_refresh(
                         snapshot=snapshot,
                         previous_reference=previous_reference,
@@ -5183,16 +5286,8 @@ def main(
                         execution_observation_only=execution_observation_only,
                         execution_block_reasons=execution_block_reasons,
                     )
+
                     return
-
-                if scout_run.get("ok"):
-                    analysis_cycle_type = CYCLE_FULL_ESCALATED
-
-                print()
-                print(
-                    "[SCOUT -> FULL] Scout обнаружил новое смысловое "
-                    "событие/setup. Запускаем глубокий FULL."
-                )
 
         # ====================================================
         # 10. DEEP FULL PAYLOAD

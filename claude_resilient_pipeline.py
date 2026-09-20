@@ -320,14 +320,50 @@ BOS/CHOCH, Elliott candidates, levels, patterns, liquidity и exact anchors.""",
     ),
     StageDef(
         "MM_CONTEXT",
-        _string_properties((
-            "regime_primary_regime", "regime_direction", "regime_current_phase",
-            "regime_phase_status", "regime_maturity", "regime_location", "regime_summary",
-            "relationship", "relationship_summary", "htf_d1_trend", "htf_d1_wave_context",
-            "htf_h4_trend", "htf_h4_wave_context", "htf_alignment", "htf_summary",
-        )),
+        {
+            "regime_primary_regime": {
+                "type": "string",
+                "enum": [
+                    "trend", "correction", "range", "breakout",
+                    "reversal", "transition", "unclear",
+                ],
+            },
+            "regime_direction": {
+                "type": "string",
+                "enum": [
+                    "bullish", "bearish", "neutral", "mixed", "unclear",
+                ],
+            },
+            "regime_current_phase": {"type": "string"},
+            "regime_phase_status": {
+                "type": "string",
+                "enum": [
+                    "developing", "mature", "completing", "completed",
+                    "transitioning", "failed", "unclear",
+                ],
+            },
+            **_string_properties((
+                "regime_maturity", "regime_location", "regime_summary",
+                "relationship", "relationship_summary",
+                "htf_d1_trend", "htf_d1_wave_context",
+                "htf_h4_trend", "htf_h4_wave_context",
+                "htf_alignment", "htf_summary",
+            )),
+        },
         """Синтезируй market regime, D1/H4/H1 relationship и higher-timeframe
-context только из validated timeframe scans. Не требуй повторной передачи raw.""",
+context только из validated timeframe scans. Не требуй повторной передачи raw.
+
+КРИТИЧНО:
+- regime_primary_regime только:
+  trend/correction/range/breakout/reversal/transition/unclear;
+- regime_direction только:
+  bullish/bearish/neutral/mixed/unclear;
+- regime_phase_status только:
+  developing/mature/completing/completed/transitioning/failed/unclear;
+- enum-поля не содержат объяснений;
+- ни одно поле не может содержать placeholder, *_placeholder или временную
+  заглушку. Если информации недостаточно, дай содержательную conservative
+  оценку из validated upstream данных.""",
         10500, dependencies=("MM_D1", "MM_H4", "MM_H1"),
     ),
     StageDef(
@@ -346,7 +382,11 @@ scan stages; не выдумывай фигуры/уровни.""",
         _string_properties(WAVE_COUNT_COLUMNS),
         """Синтезируй единый D1->H4->H1 Elliott count: primary+alternate,
 current phase и objective invalidation. Проверь impulse/diagonal/zigzag/flat/
-triangle/W-X-Y/alternation. Не подгоняй count под сделку.""",
+triangle/W-X-Y/alternation. Не подгоняй count под сделку.
+КРИТИЧНО: invalidation_level  ТОЛЬКО одна десятичная строка цены, например
+"4334.35", либо "" если объективного уровня нет. Никакого текста, EN/RU,
+условий или нескольких уровней в invalidation_level не помещай; объяснение
+пиши в alternate_count/summary.""",
         11000, dependencies=("MM_D1", "MM_H4", "MM_H1", "MM_STRUCTURE"),
     ),
     StageDef(
@@ -427,8 +467,13 @@ TD_VIS_DEFS = (
             "projected_waves": _array_named(PROJECTED_WAVE_COLUMNS),
         },
         """Верни только execution wave objects из validated market map и
-TD_CONTEXT/decision. Raw execution candles повторно не передаются.""",
-        8000, dependencies=("TD_CONTEXT", "TD_DECISION"),
+TD_CONTEXT/decision. Raw execution candles повторно не передаются.
+Все summary/basis должны быть строго bilingual:
+EN: ...
+RU: ...
+Все price wire fields  только decimal strings; optional price может быть "".""",
+        16000, effort="low",
+        dependencies=("TD_CONTEXT", "TD_DECISION"),
     ),
     StageDef(
         "TD_VIS_LEVELS_EVENTS",
@@ -439,8 +484,13 @@ TD_CONTEXT/decision. Raw execution candles повторно не передаю�
             "scenario_paths": _array_named(SCENARIO_PATH_COLUMNS),
         },
         """Верни только execution levels/zones/events/path, реально влияющие
-на decision. Не создавай декоративные объекты.""",
-        8000, dependencies=("TD_CONTEXT", "TD_DECISION", "TD_REASONING"),
+на decision. Не создавай декоративные объекты.
+Все basis должны быть строго bilingual:
+EN: ...
+RU: ...
+Все price wire fields  только decimal strings.""",
+        12000, effort="low",
+        dependencies=("TD_CONTEXT", "TD_DECISION", "TD_REASONING"),
     ),
     StageDef(
         "TD_VIS_GEOMETRY",
@@ -450,55 +500,197 @@ TD_CONTEXT/decision. Raw execution candles повторно не передаю�
             "pattern_shapes": _array_named(PATTERN_SHAPE_COLUMNS),
         },
         """Верни только execution geometry, уже подтверждённую TD_CONTEXT.
-Пустые массивы допустимы.""",
-        6500, dependencies=("TD_CONTEXT", "TD_DECISION"),
+Пустые массивы допустимы.
+Все basis должны быть строго bilingual:
+EN: ...
+RU: ...
+Все price wire fields  decimal strings; optional price может быть "".""",
+        10000, effort="low",
+        dependencies=("TD_CONTEXT", "TD_DECISION"),
     ),
 )
 
 TRADE_STAGE_DEFS = (
-    # Fresh H1/M30/M15/M5 raw is paid once here. Later stages use the durable
-    # execution scan plus a compact market-map summary.
     StageDef(
         "TD_CONTEXT",
         _string_properties((
-            "h1_execution_context", "microstructure_and_patterns",
-            "multi_timeframe_relationship", "entry_candidates", "stop_candidates",
-            "target_candidates", "fvg_context",
+            "h1_execution_context",
+            "microstructure_and_patterns",
+            "multi_timeframe_relationship",
+            "entry_candidates",
+            "stop_candidates",
+            "target_candidates",
+            "fvg_context",
         )),
-        """Полностью проанализируй свежие H1/M30/M15/M5 один раз. H1 владеет
-идеей, M30 даёт промежуточную возможность, M15 подтверждает вложенную структуру,
-M5 уточняет trigger. Сохрани entry/stop/target candidates и FVG context.""",
-        16000, timeframes=("H1", "M30", "M15", "M5"), fact_timeframes=("H1",),
+        """Полностью проанализируй свежие H1/M30/M15/M5 один раз.
+H1 владеет идеей, M30 даёт промежуточную возможность,
+M15 подтверждает вложенную структуру, M5 уточняет trigger.
+
+h1_execution_context, microstructure_and_patterns и
+multi_timeframe_relationship ОБЯЗАТЕЛЬНО:
+EN: ...
+RU: ...
+
+Сохрани entry/stop/target candidates и FVG context.""",
+        16000,
+        timeframes=("H1", "M30", "M15", "M5"),
+        fact_timeframes=("H1",),
     ),
+
     StageDef(
         "TD_DECISION",
-        _string_properties((
-            "action", "setup_type", "trade_horizon", "setup_quality", "entry_quality",
-            "order_type", "confidence", "entry_price", "stop_loss", "take_profit",
-            "invalidation_level",
-        )),
+        {
+            "action": {
+                "type": "string",
+                "enum": ["enter_long", "enter_short", "stay_out"],
+            },
+            "setup_type": {
+                "type": "string",
+                "enum": [
+                    "trend_pullback",
+                    "wave3_continuation",
+                    "wave5_continuation",
+                    "correction_a_leg",
+                    "correction_b_leg",
+                    "correction_c_leg",
+                    "correction_completion",
+                    "range_long",
+                    "range_short",
+                    "range_breakout",
+                    "breakout_retest",
+                    "false_breakout_reversal",
+                    "trend_reversal",
+                    "diagonal_reversal",
+                    "pattern_continuation",
+                    "pattern_reversal",
+                    "transition_trade",
+                    "other",
+                    "no_trade",
+                ],
+            },
+            "trade_horizon": {
+                "type": "string",
+                "enum": ["intraday", "swing", "multi_day", "unclear"],
+            },
+            "setup_quality": {
+                "type": "string",
+                "enum": ["weak", "acceptable", "good", "excellent"],
+            },
+            "entry_quality": {
+                "type": "string",
+                "enum": ["poor", "fair", "good", "excellent"],
+            },
+            "order_type": {
+                "type": "string",
+                "enum": ["market", "limit", "stop", "none"],
+            },
+            "confidence": {
+                "type": "string",
+                "enum": ["low", "medium", "high"],
+            },
+            "entry_price": {"type": "string"},
+            "stop_loss": {"type": "string"},
+            "take_profit": {"type": "string"},
+            "invalidation_level": {"type": "string"},
+        },
         """Прими core action и execution prices только из validated market map
-+ TD_CONTEXT. Если edge недостаточен — stay_out. SL структурный, TP реалистичный;
-price wire fields — decimal strings/пустая строка по старому контракту.""",
-        9000, dependencies=("TD_CONTEXT",),
++ TD_CONTEXT.
+
+Если edge недостаточен  stay_out.
+
+СТРОГИЕ ПРАВИЛА:
+- stay_out => setup_type=no_trade, order_type=none,
+  entry_price="", stop_loss="", take_profit="",
+  invalidation_level="";
+- enter_long => SL < Entry < TP;
+- enter_short => TP < Entry < SL;
+- при входе setup_type не может быть no_trade;
+- при входе setup_quality не может быть weak;
+- при входе entry_quality не может быть poor;
+- при входе order_type не может быть none;
+- при входе invalidation_level обязателен;
+- все price wire fields  только decimal strings или "".
+
+Не добавляй пояснения внутрь enum/price полей.""",
+        9000,
+        dependencies=("TD_CONTEXT",),
     ),
+
     StageDef(
         "TD_REASONING",
-        _string_properties((
-            "why_now", "structural_stop_basis", "target_basis", "reasoning",
-            "invalidation_reason", "fvg_role", "fvg_ids", "fvg_basis",
-        )),
+        {
+            **_string_properties((
+                "why_now",
+                "structural_stop_basis",
+                "target_basis",
+                "reasoning",
+                "invalidation_reason",
+            )),
+            "fvg_role": {
+                "type": "string",
+                "enum": [
+                    "confirmation",
+                    "entry_zone",
+                    "target",
+                    "invalidation",
+                    "conflict",
+                    "neutral",
+                    "no_relevant_fvg",
+                ],
+            },
+            "fvg_ids": {"type": "string"},
+            "fvg_basis": {"type": "string"},
+        },
         """Дай доказательное rationale и FVG role уже выбранного decision.
-FVG сам по себе не вход. Любое обнаруженное противоречие явно укажи.""",
-        8500, dependencies=("TD_CONTEXT", "TD_DECISION"),
+
+why_now, structural_stop_basis, target_basis, reasoning,
+invalidation_reason и fvg_basis ОБЯЗАТЕЛЬНО:
+EN: ...
+RU: ...
+
+FVG сам по себе не вход.
+
+Если fvg_role=no_relevant_fvg, fvg_ids должен быть "".
+Для confirmation/entry_zone/target/invalidation/conflict
+укажи точные Python fvg_ids через запятую.
+neutral может иметь пустой fvg_ids.
+
+Если TD_DECISION рекомендует вход, fvg_role=conflict недопустим.
+Любое обнаруженное противоречие явно укажи.""",
+        8500,
+        dependencies=("TD_CONTEXT", "TD_DECISION"),
     ),
+
     *TD_VIS_DEFS,
+
     StageDef(
         "TD_FINAL_META",
-        _string_properties(("chart_comment", "sufficient", "issues")),
-        """Короткий chart_comment и execution data quality. sufficient строго
-\"true\"/\"false\"; issues одна строка.""",
-        4000, dependencies=("TD_CONTEXT", "TD_DECISION", "TD_REASONING", "TD_VIS_WAVES", "TD_VIS_LEVELS_EVENTS", "TD_VIS_GEOMETRY"),
+        {
+            "chart_comment": {"type": "string"},
+            "sufficient": {
+                "type": "string",
+                "enum": ["true", "false"],
+            },
+            "issues": {"type": "string"},
+        },
+        """Короткий chart_comment и execution data quality.
+
+chart_comment ОБЯЗАТЕЛЬНО:
+EN: ...
+RU: ...
+
+sufficient строго "true" или "false".
+issues  одна строка.
+Не добавляй новый торговый анализ.""",
+        4000,
+        dependencies=(
+            "TD_CONTEXT",
+            "TD_DECISION",
+            "TD_REASONING",
+            "TD_VIS_WAVES",
+            "TD_VIS_LEVELS_EVENTS",
+            "TD_VIS_GEOMETRY",
+        ),
     ),
 )
 
@@ -823,26 +1015,629 @@ def _ensure_stage(pipeline: dict, spec: StageDef) -> dict:
     return stage
 
 
+def _is_decimal_wire_string(value) -> bool:
+    """Strict legacy wire decimal: plain decimal string or empty string."""
+    if not isinstance(value, str):
+        return False
+
+    if value == "":
+        return True
+
+    # No whitespace, exponent notation, NaN or Infinity.
+    if value != value.strip():
+        return False
+
+    text = value
+    if text[:1] in {"+", "-"}:
+        text = text[1:]
+
+    if not text:
+        return False
+
+    if text.count(".") > 1:
+        return False
+
+    if "." in text:
+        whole, fraction = text.split(".", 1)
+
+        if not fraction or not fraction.isdigit():
+            return False
+
+        if whole and not whole.isdigit():
+            return False
+
+        return bool(whole or fraction)
+
+    return text.isdigit()
+
+
+
+def _is_bilingual_wire_text(value) -> bool:
+    if not isinstance(value, str):
+        return False
+
+    text = value.strip()
+
+    if not text.startswith("EN:"):
+        return False
+
+    marker = "\nRU:"
+
+    if marker not in text:
+        return False
+
+    english, russian = text[3:].split(marker, 1)
+
+    english = english.strip()
+    russian = russian.strip()
+
+    if not english or not russian:
+        return False
+
+    if english.casefold() == russian.casefold():
+        return False
+
+    return True
+
+
+def _is_integer_wire_string(value) -> bool:
+    if not isinstance(value, str):
+        return False
+
+    if value != value.strip() or not value:
+        return False
+
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return False
+
+    return value in {str(number), f"+{number}"}
+
+
+def _trade_visual_field_semantically_valid(
+    spec_name: str,
+    field_name: str,
+    value,
+) -> bool:
+    rules = {
+        "TD_VIS_WAVES": {
+            "wave_points": {
+                "required_decimal": {"price"},
+                "optional_decimal": set(),
+                "integer": {"sequence"},
+                "bilingual": set(),
+            },
+            "wave_structures": {
+                "required_decimal": set(),
+                "optional_decimal": {
+                    "confirmation_level",
+                    "invalidation_level",
+                },
+                "integer": set(),
+                "bilingual": {"summary"},
+            },
+            "projected_waves": {
+                "required_decimal": {
+                    "anchor_price",
+                    "target_price_low",
+                    "target_price_high",
+                },
+                "optional_decimal": {
+                    "confirmation_level",
+                    "invalidation_level",
+                },
+                "integer": set(),
+                "bilingual": {"basis"},
+            },
+        },
+
+        "TD_VIS_LEVELS_EVENTS": {
+            "levels": {
+                "required_decimal": {"price"},
+                "optional_decimal": set(),
+                "integer": set(),
+                "bilingual": {"basis"},
+            },
+            "zones": {
+                "required_decimal": {
+                    "price_low",
+                    "price_high",
+                },
+                "optional_decimal": set(),
+                "integer": set(),
+                "bilingual": set(),
+            },
+            "market_events": {
+                "required_decimal": {"price"},
+                "optional_decimal": set(),
+                "integer": set(),
+                "bilingual": {"basis"},
+            },
+            "scenario_paths": {
+                "required_decimal": {
+                    "anchor_price",
+                    "target_price_low",
+                    "target_price_high",
+                },
+                "optional_decimal": set(),
+                "integer": set(),
+                "bilingual": set(),
+            },
+        },
+
+        "TD_VIS_GEOMETRY": {
+            "trendlines": {
+                "required_decimal": {
+                    "start_price",
+                    "end_price",
+                },
+                "optional_decimal": set(),
+                "integer": set(),
+                "bilingual": {"basis"},
+            },
+            "channels": {
+                "required_decimal": {
+                    "upper_start_price",
+                    "upper_end_price",
+                    "lower_start_price",
+                    "lower_end_price",
+                },
+                "optional_decimal": {
+                    "breakout_price",
+                    "reentry_price",
+                },
+                "integer": set(),
+                "bilingual": {"basis"},
+            },
+            "pattern_shapes": {
+                "required_decimal": {
+                    "price_low",
+                    "price_high",
+                },
+                "optional_decimal": {
+                    "confirmation_level",
+                    "invalidation_level",
+                    "target_price",
+                },
+                "integer": set(),
+                "bilingual": {"basis"},
+            },
+        },
+    }
+
+    field_rules = rules.get(spec_name, {}).get(field_name)
+
+    if field_rules is None:
+        return True
+
+    if not isinstance(value, list):
+        return False
+
+    for row in value:
+        if not isinstance(row, dict):
+            return False
+
+        for column in field_rules["required_decimal"]:
+            if column not in row:
+                return False
+
+            cell = row[column]
+
+            if (
+                not _is_decimal_wire_string(cell)
+                or cell == ""
+            ):
+                return False
+
+        for column in field_rules["optional_decimal"]:
+            if column not in row:
+                return False
+
+            if not _is_decimal_wire_string(row[column]):
+                return False
+
+        for column in field_rules["integer"]:
+            if column not in row:
+                return False
+
+            if not _is_integer_wire_string(row[column]):
+                return False
+
+        for column in field_rules["bilingual"]:
+            if column not in row:
+                return False
+
+            if not _is_bilingual_wire_text(row[column]):
+                return False
+
+    return True
+
+
+def _prune_cross_invalid_fields(
+    stage: dict,
+    spec: StageDef,
+) -> list[str]:
+    values = stage.setdefault("values", {})
+    dropped = []
+
+    def drop(name: str):
+        if name in values:
+            values.pop(name, None)
+
+            if name not in dropped:
+                dropped.append(name)
+
+    if spec.name == "TD_DECISION":
+        action = values.get("action")
+
+        if action == "stay_out":
+            if (
+                "setup_type" in values
+                and values.get("setup_type") != "no_trade"
+            ):
+                drop("setup_type")
+
+            if (
+                "order_type" in values
+                and values.get("order_type") != "none"
+            ):
+                drop("order_type")
+
+            for name in (
+                "entry_price",
+                "stop_loss",
+                "take_profit",
+                "invalidation_level",
+            ):
+                if name in values and values.get(name) != "":
+                    drop(name)
+
+        elif action in {"enter_long", "enter_short"}:
+            if (
+                "setup_type" in values
+                and values.get("setup_type") == "no_trade"
+            ):
+                drop("setup_type")
+
+            if (
+                "setup_quality" in values
+                and values.get("setup_quality") == "weak"
+            ):
+                drop("setup_quality")
+
+            if (
+                "entry_quality" in values
+                and values.get("entry_quality") == "poor"
+            ):
+                drop("entry_quality")
+
+            if (
+                "order_type" in values
+                and values.get("order_type") == "none"
+            ):
+                drop("order_type")
+
+            for name in (
+                "entry_price",
+                "stop_loss",
+                "take_profit",
+                "invalidation_level",
+            ):
+                if name in values and values.get(name) == "":
+                    drop(name)
+
+            price_names = (
+                "entry_price",
+                "stop_loss",
+                "take_profit",
+            )
+
+            if all(
+                name in values
+                and _is_decimal_wire_string(values[name])
+                and values[name] != ""
+                for name in price_names
+            ):
+                entry = float(values["entry_price"])
+                stop = float(values["stop_loss"])
+                take_profit = float(values["take_profit"])
+
+                valid_relation = (
+                    stop < entry < take_profit
+                    if action == "enter_long"
+                    else take_profit < entry < stop
+                )
+
+                if not valid_relation:
+                    for name in price_names:
+                        drop(name)
+
+    elif spec.name == "TD_REASONING":
+        role = values.get("fvg_role")
+
+        if "fvg_ids" in values:
+            ids = str(values.get("fvg_ids") or "").strip()
+
+            if role == "no_relevant_fvg" and ids:
+                drop("fvg_ids")
+
+            elif (
+                role in {
+                    "confirmation",
+                    "entry_zone",
+                    "target",
+                    "invalidation",
+                    "conflict",
+                }
+                and not ids
+            ):
+                drop("fvg_ids")
+
+    if dropped:
+        missing = [
+            name
+            for name in spec.properties
+            if name not in values
+        ]
+
+        stage["status"] = (
+            "VALIDATED"
+            if not missing
+            else ("PARTIAL" if values else "PENDING")
+        )
+
+        stage["missing_fields"] = missing
+        stage["updated_at_utc"] = _utc_now()
+
+    return dropped
+
+
+def _field_semantically_valid(spec: StageDef, name: str, value) -> bool:
+    decimal_fields = {
+        "MM_ELLIOTT": {
+            "invalidation_level",
+        },
+        "TD_DECISION": {
+            "entry_price",
+            "stop_loss",
+            "take_profit",
+            "invalidation_level",
+        },
+    }
+
+    bilingual_fields = {
+        "TD_CONTEXT": {
+            "h1_execution_context",
+            "microstructure_and_patterns",
+            "multi_timeframe_relationship",
+        },
+        "TD_REASONING": {
+            "why_now",
+            "structural_stop_basis",
+            "target_basis",
+            "reasoning",
+            "invalidation_reason",
+            "fvg_basis",
+        },
+        "TD_FINAL_META": {
+            "chart_comment",
+        },
+    }
+
+    if name in decimal_fields.get(spec.name, set()):
+        return _is_decimal_wire_string(value)
+
+    if name in bilingual_fields.get(spec.name, set()):
+        return _is_bilingual_wire_text(value)
+
+    if spec.name in {
+        "TD_VIS_WAVES",
+        "TD_VIS_LEVELS_EVENTS",
+        "TD_VIS_GEOMETRY",
+    }:
+        if not _trade_visual_field_semantically_valid(
+            spec.name,
+            name,
+            value,
+        ):
+            return False
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+
+        if normalized == "placeholder":
+            return False
+
+        if normalized == f"{name.lower()}_placeholder":
+            return False
+
+    return True
+
+
+def _prune_invalid_saved_fields(stage: dict, spec: StageDef) -> list[str]:
+    """Revalidate durable checkpoint fields after code/schema upgrades."""
+    target = stage.setdefault("values", {})
+    dropped = []
+
+    for name in list(target):
+        schema = spec.properties.get(name)
+
+        if not isinstance(schema, dict):
+            target.pop(name, None)
+            dropped.append(name)
+            continue
+
+        value = target.get(name)
+
+        try:
+            validate_closed_json_schema(value, schema, f"$.{name}")
+        except Exception:
+            target.pop(name, None)
+            dropped.append(name)
+            continue
+
+        if not _field_semantically_valid(spec, name, value):
+            target.pop(name, None)
+            dropped.append(name)
+
+    if dropped:
+        missing = [
+            name for name in spec.properties
+            if name not in target
+        ]
+        stage["missing_fields"] = missing
+        stage["status"] = "PARTIAL" if target else "PENDING"
+        stage["updated_at_utc"] = _utc_now()
+
+    return dropped
+
+
 def _merge_valid_fields(stage: dict, spec: StageDef, values: dict) -> list[str]:
     if not isinstance(values, dict):
         return []
+
     merged = []
     target = stage.setdefault("values", {})
+
     for name, value in values.items():
         schema = spec.properties.get(name)
+
         if not isinstance(schema, dict):
             continue
+
         try:
             validate_closed_json_schema(value, schema, f"$.{name}")
         except Exception:
             continue
+
+        if not _field_semantically_valid(spec, name, value):
+            continue
+
         target[name] = copy.deepcopy(value)
         merged.append(name)
+
+    cross_dropped = _prune_cross_invalid_fields(
+        stage,
+        spec,
+    )
+
+    if cross_dropped:
+        merged = [
+            name
+            for name in merged
+            if name not in cross_dropped
+        ]
+
     stage["updated_at_utc"] = _utc_now()
-    missing = [name for name in spec.properties if name not in target]
-    stage["status"] = "VALIDATED" if not missing else ("PARTIAL" if target else "PENDING")
+
+    missing = [
+        name for name in spec.properties
+        if name not in target
+    ]
+
+    stage["status"] = (
+        "VALIDATED"
+        if not missing
+        else ("PARTIAL" if target else "PENDING")
+    )
     stage["missing_fields"] = missing
+
     return merged
+
+
+def _transitive_dependents(
+    specs: tuple[StageDef, ...],
+    source_stage: str,
+) -> list[str]:
+    descendants = set()
+    frontier = {str(source_stage)}
+
+    while frontier:
+        next_frontier = set()
+
+        for item in specs:
+            if item.name == source_stage or item.name in descendants:
+                continue
+
+            if any(dep in frontier for dep in item.dependencies):
+                descendants.add(item.name)
+                next_frontier.add(item.name)
+
+        frontier = next_frontier
+
+    return [
+        item.name
+        for item in specs
+        if item.name in descendants
+    ]
+
+
+def _invalidate_dependency_descendants(
+    *,
+    pipeline: dict,
+    specs: tuple[StageDef, ...],
+    source_stage: str,
+    reason: str,
+) -> list[str]:
+    names = _transitive_dependents(specs, source_stage)
+
+    spec_by_name = {
+        item.name: item
+        for item in specs
+    }
+
+    stages = pipeline.setdefault("stages", {})
+    invalidated = []
+
+    for name in names:
+        stage = stages.get(name)
+
+        if not isinstance(stage, dict):
+            continue
+
+        old_values = copy.deepcopy(stage.get("values") or {})
+        old_attempts = copy.deepcopy(stage.get("attempts") or [])
+        old_status = str(stage.get("status") or "")
+
+        # Nothing has ever been calculated for this descendant.
+        if not old_values and not old_attempts and old_status in {"", "PENDING"}:
+            continue
+
+        history = stage.setdefault(
+            "dependency_invalidation_history",
+            [],
+        )
+
+        history.append({
+            "invalidated_at_utc": _utc_now(),
+            "source_stage": str(source_stage),
+            "reason": str(reason),
+            "previous_status": old_status,
+            "previous_values": old_values,
+            "previous_attempts": old_attempts,
+        })
+
+        # Prevent unbounded durable-state growth.
+        if len(history) > 5:
+            del history[:-5]
+
+        child_spec = spec_by_name[name]
+
+        stage["status"] = "PENDING"
+        stage["values"] = {}
+        stage["attempts"] = []
+        stage["missing_fields"] = list(child_spec.properties)
+        stage["invalidated_by_dependency"] = {
+            "source_stage": str(source_stage),
+            "reason": str(reason),
+            "invalidated_at_utc": _utc_now(),
+        }
+        stage["updated_at_utc"] = _utc_now()
+
+        invalidated.append(name)
+
+    return invalidated
 
 
 def _schema_for_missing(spec: StageDef, missing: list[str]) -> dict:
@@ -957,6 +1752,7 @@ def _run_stage(
     pipeline: dict,
     family: str,
     spec: StageDef,
+    all_specs: tuple[StageDef, ...],
     stage_index: int,
     stage_total: int,
     payload: dict,
@@ -964,6 +1760,41 @@ def _run_stage(
     market_map: dict | None,
 ) -> dict:
     stage = _ensure_stage(pipeline, spec)
+
+    dropped_saved_fields = _prune_invalid_saved_fields(
+        stage,
+        spec,
+    )
+
+    cross_dropped_saved_fields = _prune_cross_invalid_fields(
+        stage,
+        spec,
+    )
+
+    if cross_dropped_saved_fields:
+        dropped_saved_fields = list(dict.fromkeys(
+            list(dropped_saved_fields)
+            + list(cross_dropped_saved_fields)
+        ))
+
+    if dropped_saved_fields:
+        invalidated_descendants = _invalidate_dependency_descendants(
+            pipeline=pipeline,
+            specs=all_specs,
+            source_stage=spec.name,
+            reason=(
+                "Local checkpoint revalidation dropped fields: "
+                + ", ".join(dropped_saved_fields)
+            ),
+        )
+
+        stage["last_checkpoint_revalidation"] = {
+            "at_utc": _utc_now(),
+            "dropped_fields": list(dropped_saved_fields),
+            "invalidated_descendants": list(invalidated_descendants),
+        }
+
+        _save_state(state)
 
     # Crash recovery: an attempt persisted as IN_PROGRESS may have been billed.
     attempts = stage.setdefault("attempts", [])
@@ -1158,6 +1989,24 @@ def _run_stage(
             attempt["partial_fields_saved"] = sorted(
                 set(attempt.get("partial_fields_saved") or []) | set(merged)
             )
+            rejected_fields = [
+                name for name in missing
+                if name not in (stage.get("values") or {})
+            ]
+
+            if rejected_fields:
+                raise ClaudeInvalidResponseError(
+                    (
+                        f"V8.5.3 micro-stage {spec.name} returned locally "
+                        f"invalid fields: {', '.join(rejected_fields)}"
+                    ),
+                    invalid_result=result,
+                    validation_error=(
+                        "Fields failed local schema/semantic validation: "
+                        + ", ".join(rejected_fields)
+                    ),
+                )
+
             attempt["status"] = "VALIDATED_RESPONSE"
             attempt["completed_at_utc"] = _utc_now()
             attempt["request_id"] = diagnostics.get("request_id") or attempt.get("request_id")
@@ -1307,6 +2156,7 @@ def _run_pipeline(
             pipeline=pipeline,
             family=family,
             spec=spec,
+            all_specs=specs,
             stage_index=index,
             stage_total=len(specs),
             payload=frozen_payload,
@@ -1498,6 +2348,24 @@ def run_market_map_pipeline(
     }
 
 
+def _validate_trade_business_contract(
+    *,
+    payload: dict,
+    market_map: dict,
+    trade_decision: dict,
+    previous_reference: dict | None,
+) -> dict:
+    # Local import avoids introducing a module-initialization dependency.
+    from claude_staged_client import assemble_staged_analysis
+
+    return assemble_staged_analysis(
+        payload=payload,
+        market_map=market_map,
+        trade_decision=trade_decision,
+        previous_reference=previous_reference,
+    )
+
+
 def run_trade_decision_pipeline(
     payload: dict,
     *,
@@ -1561,6 +2429,18 @@ def run_trade_decision_pipeline(
             raise ValueError("Unexpected instrument.")
         if set(result) != set(TRADE_DECISION_SCHEMA["required"]):
             raise ValueError("Trade-decision top-level contract mismatch.")
+
+        # IMPORTANT:
+        # Micro-stages are not considered a successful trade decision until
+        # the exact production FULL contract also passes local validation:
+        # trade levels, business enums/cross-field rules, visualization
+        # sanitizer and deterministic FVG selection.
+        _validate_trade_business_contract(
+            payload=frozen_payload,
+            market_map=market_map,
+            trade_decision=result,
+            previous_reference=previous_reference,
+        )
     except Exception as error:
         pipeline["status"] = "FINAL_VALIDATION_FAILED"
         pipeline["final_validation_error"] = f"{type(error).__name__}: {error}"
@@ -1789,3 +2669,1380 @@ def run_position_review_pipeline(
         "usage": _aggregate_usage(pipeline),
         "micro_pipeline_id": pipeline.get("pipeline_id"),
     }
+
+# ============================================================================
+# COST OPTIMIZATION V8.5.3  PHASE 1
+# ============================================================================
+
+_COST_V853_PHASE1 = True
+_COST_ORIGINAL_RUN_STAGE = _run_stage
+_COST_ORIGINAL_STAGE_CONTEXT = _stage_context
+
+_COST_LOCAL_MARKET_STAGES = {
+    "MM_VIS_LEVELS_EVENTS",
+    "MM_VIS_GEOMETRY",
+    "MM_FINAL_META",
+}
+
+_COST_LOCAL_TRADE_STAGES = {
+    "TD_VIS_WAVES",
+    "TD_VIS_LEVELS_EVENTS",
+    "TD_VIS_GEOMETRY",
+    "TD_FINAL_META",
+}
+
+_COST_LOCAL_STAGES = (
+    _COST_LOCAL_MARKET_STAGES
+    | _COST_LOCAL_TRADE_STAGES
+)
+
+
+_COST_TOKEN_CAPS = {
+    "MM_D1": 6500,
+    "MM_H4": 6500,
+    "MM_H1": 7000,
+    "MM_CONTEXT": 4000,
+    "MM_STRUCTURE": 3500,
+    "MM_ELLIOTT": 4500,
+    "MM_SCENARIOS": 3000,
+    "MM_WAVE_REVISION": 1500,
+    "MM_VIS_WAVES": 4500,
+
+    "TD_CONTEXT": 6500,
+    "TD_DECISION": 3000,
+    "TD_REASONING": 4000,
+}
+
+
+_COST_LOW_EFFORT = {
+    "MM_WAVE_REVISION",
+    "MM_VIS_WAVES",
+}
+
+
+_COST_STAGE_SUFFIX = {
+    "MM_D1": '''
+COST DISCIPLINE:
+Keep the bilingual D1 conclusion compact.
+The D1 field should normally stay within ~2200 characters total;
+each support field within ~700 characters.
+
+Preserve exact levels and anchors.
+Do not repeat narrative across fields.
+
+Deep analysis is required.
+Verbosity is not.
+''',
+
+    "MM_H4": '''
+COST DISCIPLINE:
+Keep the bilingual H4 conclusion compact.
+The H4 field should normally stay within ~2200 characters total;
+each support field within ~700 characters.
+
+Do not retell MM_D1.
+Preserve only decision-relevant levels and anchors.
+''',
+
+    "MM_H1": '''
+COST DISCIPLINE:
+Keep the bilingual H1 conclusion compact.
+The H1 field should normally stay within ~2400 characters total;
+each support field within ~800 characters.
+
+Do not retell D1/H4.
+Preserve objective swings, levels and anchors.
+''',
+
+    "MM_CONTEXT": '''
+COST DISCIPLINE:
+Synthesize instead of repeating upstream scans.
+Narrative fields should normally stay within ~650 characters each.
+Enums remain exact.
+''',
+
+    "MM_STRUCTURE": '''
+COST DISCIPLINE:
+Each field should contain only the conclusion plus strongest
+objective evidence, normally <= 800 characters.
+No repeated narrative.
+''',
+
+    "MM_ELLIOTT": '''
+COST DISCIPLINE:
+Keep primary and alternate counts technically complete but compact.
+
+summary and alternate_count normally <= 1200 characters each.
+Other narrative fields normally <= 700 characters.
+
+invalidation_level remains exactly one decimal string or empty.
+''',
+
+    "MM_SCENARIOS": '''
+COST DISCIPLINE:
+Each scenario field normally <= 700 characters.
+
+Describe only information that can change a decision.
+Do not repeat the complete market map.
+''',
+
+    "MM_WAVE_REVISION": '''
+COST DISCIPLINE:
+Classify anchors exactly.
+Keep reason <= 500 characters.
+''',
+
+    "MM_VIS_WAVES": '''
+COST DISCIPLINE:
+This is the only paid market chart-serialization stage.
+
+Return at most:
+- 12 wave_points
+- 6 wave_structures
+- 2 projected_waves
+
+No decorative objects.
+Keep summary/basis short while preserving EN/RU
+where the existing contract requires it.
+''',
+
+    "TD_CONTEXT": '''
+COST DISCIPLINE:
+Do not restate the entire market map.
+
+Each required bilingual context field should normally stay
+within ~1800 characters total (EN + RU).
+
+entry/stop/target candidates and FVG context must be
+compact factual lists.
+''',
+
+    "TD_DECISION": '''
+COST DISCIPLINE:
+Return only enums and prices required by the schema.
+
+No prose inside decision fields.
+Do not repeat TD_CONTEXT.
+''',
+
+    "TD_REASONING": '''
+COST DISCIPLINE:
+reasoning normally <= 1800 characters total (EN + RU).
+
+Each other bilingual basis field normally <= 1100 characters total.
+
+State only evidence capable of changing the selected decision.
+Do not retell market map or TD_CONTEXT.
+''',
+}
+
+
+def _cost_tune_specs(
+    specs: tuple[StageDef, ...],
+) -> tuple[StageDef, ...]:
+
+    tuned = []
+
+    for spec in specs:
+        suffix = _COST_STAGE_SUFFIX.get(
+            spec.name,
+            "",
+        )
+
+        tuned.append(
+            StageDef(
+                name=spec.name,
+
+                properties=copy.deepcopy(
+                    spec.properties
+                ),
+
+                instructions=(
+                    spec.instructions
+                    if not suffix
+                    else (
+                        spec.instructions
+                        + "\n\n"
+                        + suffix.strip()
+                    )
+                ),
+
+                max_tokens=int(
+                    _COST_TOKEN_CAPS.get(
+                        spec.name,
+                        spec.max_tokens,
+                    )
+                ),
+
+                effort=(
+                    "low"
+                    if spec.name in _COST_LOW_EFFORT
+                    else spec.effort
+                ),
+
+                timeframes=tuple(
+                    spec.timeframes
+                ),
+
+                fact_timeframes=tuple(
+                    spec.fact_timeframes
+                ),
+
+                dependencies=tuple(
+                    spec.dependencies
+                ),
+            )
+        )
+
+    return tuple(tuned)
+
+
+MARKET_STAGE_DEFS = _cost_tune_specs(
+    MARKET_STAGE_DEFS
+)
+
+TRADE_STAGE_DEFS = _cost_tune_specs(
+    TRADE_STAGE_DEFS
+)
+
+
+# ----------------------------------------------------------------------
+# Raw context compaction.
+# ----------------------------------------------------------------------
+
+def _cost_trim_closed_bars(
+    node,
+    limit: int,
+):
+
+    if isinstance(node, dict):
+
+        result = {}
+
+        for key, value in node.items():
+
+            if (
+                key == "closed_bars"
+                and isinstance(value, list)
+            ):
+                result[key] = copy.deepcopy(
+                    value[-int(limit):]
+                )
+
+            else:
+                result[key] = (
+                    _cost_trim_closed_bars(
+                        value,
+                        limit,
+                    )
+                )
+
+        return result
+
+
+    if isinstance(node, list):
+
+        return [
+            _cost_trim_closed_bars(
+                item,
+                limit,
+            )
+            for item in node
+        ]
+
+
+    return copy.deepcopy(node)
+
+
+def _cost_compact_market_map_for_trade(
+    market_map: dict,
+) -> dict:
+
+    result = copy.deepcopy(
+        market_map or {}
+    )
+
+    visualization = (
+        result.get("visualization")
+        or {}
+    )
+
+    result["visualization"] = {
+
+        "wave_points": list(
+            visualization.get(
+                "wave_points"
+            )
+            or []
+        )[-12:],
+
+        "wave_structures": list(
+            visualization.get(
+                "wave_structures"
+            )
+            or []
+        )[-6:],
+
+        "projected_waves": list(
+            visualization.get(
+                "projected_waves"
+            )
+            or []
+        )[:2],
+
+        "levels": [],
+        "zones": [],
+        "market_events": [],
+        "scenario_paths": [],
+        "trendlines": [],
+        "channels": [],
+        "pattern_shapes": [],
+        "chart_comment": "",
+    }
+
+    return result
+
+
+def _stage_context(
+    *,
+    family: str,
+    spec: StageDef,
+    payload: dict,
+    previous_reference: dict | None,
+    pipeline: dict,
+    market_map: dict | None = None,
+) -> dict:
+
+    context = _COST_ORIGINAL_STAGE_CONTEXT(
+        family=family,
+        spec=spec,
+        payload=payload,
+        previous_reference=previous_reference,
+        pipeline=pipeline,
+        market_map=market_map,
+    )
+
+
+    limit = {
+
+        "MM_D1": 180,
+
+        "MM_H4": 180,
+
+        "MM_H1": 240,
+
+        "TD_CONTEXT": 120,
+
+    }.get(spec.name)
+
+
+    if (
+        limit
+        and "raw_market" in context
+    ):
+
+        context["raw_market"] = (
+            _cost_trim_closed_bars(
+                context["raw_market"],
+                limit,
+            )
+        )
+
+
+    if (
+        family.startswith(
+            "TRADE_DECISION"
+        )
+        and spec.name == "TD_CONTEXT"
+    ):
+
+        context[
+            "validated_market_map"
+        ] = (
+            _cost_compact_market_map_for_trade(
+                market_map or {}
+            )
+        )
+
+
+    return context
+
+
+# ----------------------------------------------------------------------
+# Deterministic Python-owned FVG visualization.
+# No Claude call.
+# ----------------------------------------------------------------------
+
+def _cost_fvg_candidates(
+    payload: dict,
+) -> list[dict]:
+
+    try:
+
+        from claude_staged_client import (
+            _deterministic_fvg_candidates
+        )
+
+        values = (
+            _deterministic_fvg_candidates(
+                payload
+            )
+        )
+
+    except Exception:
+
+        return []
+
+
+    return [
+        item
+        for item in values
+        if isinstance(item, dict)
+        and item.get("active") is True
+    ]
+
+
+def _cost_fvg_zone(
+    candidate: dict,
+    scenario: str = "primary",
+) -> dict | None:
+
+    low = candidate.get(
+        "active_price_low",
+        candidate.get(
+            "price_low"
+        ),
+    )
+
+    high = candidate.get(
+        "active_price_high",
+        candidate.get(
+            "price_high"
+        ),
+    )
+
+
+    start_time = (
+        candidate.get(
+            "start_time"
+        )
+        or candidate.get(
+            "formed_at"
+        )
+        or ""
+    )
+
+
+    timeframe = str(
+        candidate.get(
+            "timeframe"
+        )
+        or ""
+    )
+
+
+    if (
+        low is None
+        or high is None
+        or not start_time
+        or not timeframe
+    ):
+
+        return None
+
+
+    return {
+
+        "kind": "fvg",
+
+        "scenario": scenario,
+
+        "timeframe": timeframe,
+
+        "start_time": str(
+            start_time
+        ),
+
+        "end_time": str(
+            start_time
+        ),
+
+        "price_low": str(
+            low
+        ),
+
+        "price_high": str(
+            high
+        ),
+
+        "label": (
+            "Python-validated active FVG"
+        ),
+    }
+
+
+def _cost_market_fvg_zones(
+    payload: dict,
+) -> list[dict]:
+
+    zones = []
+
+
+    for candidate in (
+        _cost_fvg_candidates(
+            payload
+        )
+    ):
+
+        if str(
+            candidate.get(
+                "timeframe"
+            )
+            or ""
+        ) not in {
+            "D1",
+            "H4",
+            "H1",
+        }:
+
+            continue
+
+
+        zone = _cost_fvg_zone(
+            candidate
+        )
+
+
+        if zone:
+
+            zones.append(
+                zone
+            )
+
+
+        if len(zones) >= 12:
+
+            break
+
+
+    return zones
+
+
+def _cost_trade_fvg_zones(
+    payload: dict,
+    pipeline: dict,
+) -> list[dict]:
+
+    reasoning = _stage_values(
+        pipeline,
+        "TD_REASONING",
+    )
+
+
+    selected = {
+
+        item.strip()
+
+        for item in str(
+            reasoning.get(
+                "fvg_ids"
+            )
+            or ""
+        ).split(",")
+
+        if item.strip()
+    }
+
+
+    if not selected:
+
+        return []
+
+
+    zones = []
+
+
+    for candidate in (
+        _cost_fvg_candidates(
+            payload
+        )
+    ):
+
+        identifier = str(
+            candidate.get(
+                "id"
+            )
+            or ""
+        )
+
+
+        if identifier not in selected:
+
+            continue
+
+
+        zone = _cost_fvg_zone(
+            candidate
+        )
+
+
+        if zone:
+
+            zones.append(
+                zone
+            )
+
+
+    return zones
+
+
+# ----------------------------------------------------------------------
+# Local zero-cost stages.
+# ----------------------------------------------------------------------
+
+def _cost_local_stage_values(
+    family: str,
+    spec: StageDef,
+    payload: dict,
+    pipeline: dict,
+) -> dict:
+
+
+    if (
+        spec.name
+        == "MM_VIS_LEVELS_EVENTS"
+    ):
+
+        return {
+
+            "levels": [],
+
+            "zones": (
+                _cost_market_fvg_zones(
+                    payload
+                )
+            ),
+
+            "market_events": [],
+
+            "scenario_paths": [],
+        }
+
+
+    if (
+        spec.name
+        == "MM_VIS_GEOMETRY"
+    ):
+
+        return {
+
+            "trendlines": [],
+
+            "channels": [],
+
+            "pattern_shapes": [],
+        }
+
+
+    if (
+        spec.name
+        == "MM_FINAL_META"
+    ):
+
+        return {
+
+            "chart_comment": (
+                "EN: Read-only chart metadata is "
+                "cost-optimized and Python-validated.\n"
+                "RU: Метаданные графика оптимизированы "
+                "по стоимости и проверяются Python."
+            ),
+
+            "sufficient": "true",
+
+            "issues": "none",
+        }
+
+
+    if (
+        spec.name
+        == "TD_VIS_WAVES"
+    ):
+
+        return {
+
+            "wave_points": [],
+
+            "wave_structures": [],
+
+            "projected_waves": [],
+        }
+
+
+    if (
+        spec.name
+        == "TD_VIS_LEVELS_EVENTS"
+    ):
+
+        return {
+
+            "levels": [],
+
+            "zones": (
+                _cost_trade_fvg_zones(
+                    payload,
+                    pipeline,
+                )
+            ),
+
+            "market_events": [],
+
+            "scenario_paths": [],
+        }
+
+
+    if (
+        spec.name
+        == "TD_VIS_GEOMETRY"
+    ):
+
+        return {
+
+            "trendlines": [],
+
+            "channels": [],
+
+            "pattern_shapes": [],
+        }
+
+
+    if (
+        spec.name
+        == "TD_FINAL_META"
+    ):
+
+        return {
+
+            "chart_comment": (
+                "EN: Execution chart metadata is "
+                "assembled locally from the validated "
+                "decision.\n"
+                "RU: Метаданные графика исполнения "
+                "собираются локально из проверенного "
+                "решения."
+            ),
+
+            "sufficient": "true",
+
+            "issues": "none",
+        }
+
+
+    raise KeyError(
+        spec.name
+    )
+
+
+# ----------------------------------------------------------------------
+# Preserve original resilient _run_stage for all analytical stages.
+# Only visualization/meta stages listed above become local.
+# ----------------------------------------------------------------------
+
+def _run_stage(
+    *,
+    state: dict,
+    pipeline: dict,
+    family: str,
+    spec: StageDef,
+    all_specs: tuple[StageDef, ...],
+    stage_index: int,
+    stage_total: int,
+    payload: dict,
+    previous_reference: dict | None,
+    market_map: dict | None,
+) -> dict:
+
+
+    if (
+        spec.name
+        not in _COST_LOCAL_STAGES
+    ):
+
+        return (
+            _COST_ORIGINAL_RUN_STAGE(
+                state=state,
+                pipeline=pipeline,
+                family=family,
+                spec=spec,
+                all_specs=all_specs,
+                stage_index=stage_index,
+                stage_total=stage_total,
+                payload=payload,
+                previous_reference=(
+                    previous_reference
+                ),
+                market_map=market_map,
+            )
+        )
+
+
+    stage = _ensure_stage(
+        pipeline,
+        spec,
+    )
+
+
+    stage["values"] = {}
+
+
+    values = (
+        _cost_local_stage_values(
+            family,
+            spec,
+            payload,
+            pipeline,
+        )
+    )
+
+
+    _merge_valid_fields(
+        stage,
+        spec,
+        values,
+    )
+
+
+    missing = [
+
+        name
+
+        for name in spec.properties
+
+        if name not in (
+            stage.get("values")
+            or {}
+        )
+    ]
+
+
+    if missing:
+
+        stage[
+            "status"
+        ] = "TEMPORARILY_BLOCKED"
+
+        stage[
+            "updated_at_utc"
+        ] = _utc_now()
+
+        _save_state(
+            state
+        )
+
+        return {
+
+            "ok": False,
+
+            "temporary": True,
+
+            "error": RuntimeError(
+                "Local cost stage failed "
+                "validation: "
+                + spec.name
+                + " missing "
+                + ", ".join(
+                    missing
+                )
+            ),
+        }
+
+
+    attempts = stage.setdefault(
+        "attempts",
+        [],
+    )
+
+
+    already_recorded = any(
+
+        item.get(
+            "status"
+        ) == "LOCAL_VALIDATED"
+
+        and item.get(
+            "cost_optimization"
+        ) == "V8.5.3_PHASE1"
+
+        for item in attempts
+
+        if isinstance(
+            item,
+            dict,
+        )
+    )
+
+
+    if not already_recorded:
+
+        attempts.append(
+            {
+
+                "attempt_id": (
+                    "LOCAL_COST_"
+                    + str(
+                        uuid.uuid4()
+                    )
+                ),
+
+                "status": (
+                    "LOCAL_VALIDATED"
+                ),
+
+                "started_at_utc": (
+                    _utc_now()
+                ),
+
+                "completed_at_utc": (
+                    _utc_now()
+                ),
+
+                "requested_fields": list(
+                    spec.properties
+                ),
+
+                "request_id": None,
+
+                "failure_class": None,
+
+                "error": None,
+
+                "outcome_unknown": False,
+
+                "partial_fields_saved": sorted(
+                    stage["values"]
+                ),
+
+                "cost_optimization": (
+                    "V8.5.3_PHASE1"
+                ),
+            }
+        )
+
+
+    stage[
+        "status"
+    ] = "VALIDATED"
+
+
+    stage[
+        "local_cost_optimized"
+    ] = True
+
+
+    stage[
+        "updated_at_utc"
+    ] = _utc_now()
+
+
+    pipeline[
+        "updated_at_utc"
+    ] = _utc_now()
+
+
+    _save_state(
+        state
+    )
+
+
+    return {
+
+        "ok": True,
+
+        "values": copy.deepcopy(
+            stage["values"]
+        ),
+
+        "local": True,
+    }
+
+# ============================================================================
+# COST OPTIMIZATION V8.5.3  PHASE 2A COST LEDGER
+# ============================================================================
+
+_COST_PHASE2A_ORIGINAL_RECORD_USAGE = _record_usage
+
+
+def _record_usage(
+    pipeline: dict,
+    stage_name: str,
+    diagnostics: dict,
+) -> None:
+
+    before_records = list(
+        (
+            pipeline.get("usage")
+            or {}
+        ).get(
+            stage_name,
+            [],
+        )
+    )
+
+    _COST_PHASE2A_ORIGINAL_RECORD_USAGE(
+        pipeline,
+        stage_name,
+        diagnostics,
+    )
+
+    after_records = (
+        (
+            pipeline.get("usage")
+            or {}
+        ).get(
+            stage_name,
+            [],
+        )
+    )
+
+
+    if (
+        len(after_records)
+        <= len(before_records)
+    ):
+        return
+
+
+    try:
+
+        from ai_cost_guard import (
+            record_pipeline_usage
+        )
+
+        record_pipeline_usage(
+            family=str(
+                pipeline.get(
+                    "family"
+                )
+                or ""
+            ),
+            stage=str(
+                stage_name
+            ),
+            record=copy.deepcopy(
+                after_records[-1]
+            ),
+        )
+
+    except Exception as error:
+
+        # Cost telemetry must never corrupt the analytical result.
+        print(
+            "[COST LEDGER WARNING] "
+            f"{type(error).__name__}: {error}"
+        )
+
+# ============================================================================
+# COST OPTIMIZATION V8.5.3  PHASE 2B POSITION REVIEW
+# ============================================================================
+
+_COST_LOCAL_POSITION_STAGES = {
+    "PR_VIS_WAVES",
+    "PR_VIS_LEVELS_EVENTS",
+    "PR_VIS_GEOMETRY",
+    "PR_FINAL_META",
+}
+
+_COST_LOCAL_STAGES = (
+    set(_COST_LOCAL_STAGES)
+    | _COST_LOCAL_POSITION_STAGES
+)
+
+
+_COST_PHASE2B_PREVIOUS_LOCAL_VALUES = (
+    _cost_local_stage_values
+)
+
+
+def _cost_local_stage_values(
+    family: str,
+    spec: StageDef,
+    payload: dict,
+    pipeline: dict,
+) -> dict:
+
+    if spec.name == "PR_VIS_WAVES":
+
+        return {
+            "wave_points": [],
+            "wave_structures": [],
+            "projected_waves": [],
+        }
+
+
+    if spec.name == "PR_VIS_LEVELS_EVENTS":
+
+        return {
+            "levels": [],
+            "zones": [],
+            "market_events": [],
+            "scenario_paths": [],
+        }
+
+
+    if spec.name == "PR_VIS_GEOMETRY":
+
+        return {
+            "trendlines": [],
+            "channels": [],
+            "pattern_shapes": [],
+        }
+
+
+    if spec.name == "PR_FINAL_META":
+
+        return {
+            "chart_comment": (
+                "EN: Position chart metadata is assembled "
+                "locally from the validated protection review.\n"
+                "RU: Метаданные графика позиции собраны "
+                "локально из подтверждённого анализа защиты."
+            ),
+            "sufficient": "true",
+            "issues": "none",
+        }
+
+
+    return _COST_PHASE2B_PREVIOUS_LOCAL_VALUES(
+        family,
+        spec,
+        payload,
+        pipeline,
+    )
+
+
+_COST_POSITION_TOKEN_CAPS = {
+    "PR_HTF": 3500,
+    "PR_LTF": 3500,
+    "PR_STATUS": 1400,
+    "PR_MANAGEMENT_CORE": 1600,
+    "PR_MANAGEMENT_STOP": 1200,
+    "PR_MANAGEMENT_TARGET": 1400,
+}
+
+
+_COST_POSITION_LOW_EFFORT = {
+    "PR_STATUS",
+    "PR_MANAGEMENT_CORE",
+    "PR_MANAGEMENT_STOP",
+    "PR_MANAGEMENT_TARGET",
+}
+
+
+_COST_POSITION_SUFFIX = {
+    "PR_HTF": """
+COST DISCIPLINE:
+Analyze deeply but answer compactly.
+Each narrative field should normally stay below ~900 characters.
+Do not repeat the stored trade thesis in every field.
+Preserve exact structural evidence.
+""",
+
+    "PR_LTF": """
+COST DISCIPLINE:
+Focus only on M30/M15/M5 facts relevant to the already-open position.
+Each narrative field should normally stay below ~900 characters.
+Keep exact timestamps/prices for protection evidence.
+""",
+
+    "PR_STATUS": """
+COST DISCIPLINE:
+Synthesize only the validated HTF/LTF result.
+Keep summary below ~1000 characters total.
+No repeated market-map narrative.
+""",
+
+    "PR_MANAGEMENT_CORE": """
+COST DISCIPLINE:
+Return only the protection-plan classification and concise evidence.
+management_reason should normally stay below ~900 characters.
+""",
+
+    "PR_MANAGEMENT_STOP": """
+COST DISCIPLINE:
+Return exact stop-anchor evidence only.
+No narrative expansion.
+""",
+
+    "PR_MANAGEMENT_TARGET": """
+COST DISCIPLINE:
+Return exact Fibonacci target evidence only.
+No narrative expansion.
+""",
+}
+
+
+def _cost_tune_position_specs(
+    specs: tuple[StageDef, ...],
+) -> tuple[StageDef, ...]:
+
+    tuned = []
+
+    for spec in specs:
+
+        suffix = _COST_POSITION_SUFFIX.get(
+            spec.name,
+            "",
+        )
+
+        tuned.append(
+            StageDef(
+                name=spec.name,
+
+                properties=copy.deepcopy(
+                    spec.properties
+                ),
+
+                instructions=(
+                    spec.instructions
+                    if not suffix
+                    else (
+                        spec.instructions
+                        + "\n\n"
+                        + suffix.strip()
+                    )
+                ),
+
+                max_tokens=int(
+                    _COST_POSITION_TOKEN_CAPS.get(
+                        spec.name,
+                        spec.max_tokens,
+                    )
+                ),
+
+                effort=(
+                    "low"
+                    if spec.name
+                    in _COST_POSITION_LOW_EFFORT
+                    else spec.effort
+                ),
+
+                timeframes=tuple(
+                    spec.timeframes
+                ),
+
+                fact_timeframes=tuple(
+                    spec.fact_timeframes
+                ),
+
+                dependencies=tuple(
+                    spec.dependencies
+                ),
+            )
+        )
+
+    return tuple(tuned)
+
+
+POSITION_REVIEW_STAGE_DEFS = (
+    _cost_tune_position_specs(
+        POSITION_REVIEW_STAGE_DEFS
+    )
+)
+
+
+# ----------------------------------------------------------------------
+# Compact raw bars specifically for the paid position-review stages.
+# ----------------------------------------------------------------------
+
+_COST_PHASE2B_PREVIOUS_STAGE_CONTEXT = (
+    _stage_context
+)
+
+
+def _stage_context(
+    *,
+    family: str,
+    spec: StageDef,
+    payload: dict,
+    previous_reference: dict | None,
+    pipeline: dict,
+    market_map: dict | None = None,
+) -> dict:
+
+    context = (
+        _COST_PHASE2B_PREVIOUS_STAGE_CONTEXT(
+            family=family,
+            spec=spec,
+            payload=payload,
+            previous_reference=previous_reference,
+            pipeline=pipeline,
+            market_map=market_map,
+        )
+    )
+
+
+    limit = {
+        "PR_HTF": 80,
+        "PR_LTF": 64,
+    }.get(
+        spec.name
+    )
+
+
+    if (
+        limit
+        and "raw_market" in context
+    ):
+
+        context[
+            "raw_market"
+        ] = _cost_trim_closed_bars(
+            context[
+                "raw_market"
+            ],
+            limit,
+        )
+
+
+    # Reference visualization is not needed for paid position reasoning.
+    if isinstance(
+        context.get(
+            "_reference_analysis"
+        ),
+        dict,
+    ):
+
+        context[
+            "_reference_analysis"
+        ] = (
+            _cost_compact_market_map_for_trade(
+                context[
+                    "_reference_analysis"
+                ]
+            )
+        )
+
+
+    if isinstance(
+        context.get(
+            "_previous_monitor_result"
+        ),
+        dict,
+    ):
+
+        previous_monitor = copy.deepcopy(
+            context[
+                "_previous_monitor_result"
+            ]
+        )
+
+        previous_monitor[
+            "visualization"
+        ] = {}
+
+        context[
+            "_previous_monitor_result"
+        ] = previous_monitor
+
+
+    return context
