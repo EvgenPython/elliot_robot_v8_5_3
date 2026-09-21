@@ -4131,3 +4131,75 @@ def _is_bilingual_wire_text(
 
 
     return True
+
+# ============================================================================
+# V8.5.3 LOCAL VISUALIZATION ENRICHMENT
+# ============================================================================
+
+_COST_VIS_ORIGINAL_RUN_MARKET_MAP_PIPELINE = (
+    run_market_map_pipeline
+)
+
+
+def run_market_map_pipeline(
+    payload: dict,
+    *,
+    previous_reference: dict | None = None,
+    snapshot: dict | None = None,
+    cycle_type: str | None = None,
+    archive_path=None,
+) -> dict:
+    """
+    Original analytical MARKET_MAP +
+    deterministic $0 chart enrichment.
+
+    No additional Claude request is made here.
+    """
+
+    result = (
+        _COST_VIS_ORIGINAL_RUN_MARKET_MAP_PIPELINE(
+            payload,
+            previous_reference=previous_reference,
+            snapshot=snapshot,
+            cycle_type=cycle_type,
+            archive_path=archive_path,
+        )
+    )
+
+
+    if not (
+        isinstance(result, dict)
+        and result.get("ok")
+        and isinstance(
+            result.get("result"),
+            dict,
+        )
+    ):
+
+        return result
+
+
+    from local_visual_builder import (
+        enrich_market_visualization
+    )
+
+
+    enriched = copy.deepcopy(
+        result
+    )
+
+
+    report = (
+        enrich_market_visualization(
+            enriched["result"],
+            payload,
+        )
+    )
+
+
+    enriched[
+        "local_visual_enrichment"
+    ] = report
+
+
+    return enriched

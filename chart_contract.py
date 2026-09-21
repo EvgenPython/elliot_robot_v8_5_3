@@ -241,7 +241,7 @@ def sanitize_visualization(
                         "fill_fraction": candidate.get("fill_fraction"),
                         "active": True,
                         "formed_at": candidate.get("formed_at"),
-                        "start_time": candidate.get("start_time") or item.get("start_time"),
+                        "start_time": item.get("start_time") or candidate.get("start_time"),
                         "original_price_low": candidate.get("price_low"),
                         "original_price_high": candidate.get("price_high"),
                         "price_low": candidate.get(
