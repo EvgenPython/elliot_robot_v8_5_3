@@ -4046,3 +4046,88 @@ def _stage_context(
 
 
     return context
+
+# ============================================================================
+# V8.5.3 FULL RECOVERY HOTFIX  BILINGUAL FORMAT COMPAT
+# ============================================================================
+
+_COST_PREVIOUS_BILINGUAL_WIRE_VALIDATOR = (
+    _is_bilingual_wire_text
+)
+
+
+def _is_bilingual_wire_text(
+    value,
+) -> bool:
+    """
+    Accept the two wire forms already understood by
+    claude_staged_client._bilingual_parts():
+
+        EN: text\nRU: text
+        EN: text RU: text
+
+    Also tolerate a literal escaped \\nRU: marker.
+
+    Content still must contain two non-empty, different parts.
+    """
+
+    if not isinstance(
+        value,
+        str,
+    ):
+        return False
+
+
+    text = value.strip()
+
+    if not text.startswith(
+        "EN:"
+    ):
+        return False
+
+
+    marker = None
+
+    for candidate in (
+        "\nRU:",
+        " RU:",
+        "\\nRU:",
+    ):
+
+        if candidate in text:
+
+            marker = candidate
+            break
+
+
+    if marker is None:
+        return False
+
+
+    english, russian = (
+        text[3:].split(
+            marker,
+            1,
+        )
+    )
+
+
+    english = english.strip()
+    russian = russian.strip()
+
+
+    if (
+        not english
+        or not russian
+    ):
+        return False
+
+
+    if (
+        english.casefold()
+        == russian.casefold()
+    ):
+        return False
+
+
+    return True

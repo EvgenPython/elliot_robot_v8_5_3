@@ -5862,6 +5862,262 @@ def main(
             disconnect_mt5()
 
 
+# ============================================================================
+# V8.5.3 FULL RECOVERY HOTFIX  RESILIENT ARCHIVE FALLBACK
+# ============================================================================
+
+_COST_PREVIOUS_LOAD_RESUMABLE_STAGED_FULL_ARCHIVE = (
+    _load_resumable_staged_full_archive
+)
+
+
+def _cost_same_h1(
+    left,
+    right,
+) -> bool:
+
+    if left is None or right is None:
+        return False
+
+
+    left_text = str(
+        left
+    ).strip()
+
+    right_text = str(
+        right
+    ).strip()
+
+
+    if left_text == right_text:
+        return True
+
+
+    try:
+
+        left_dt = datetime.fromisoformat(
+            left_text.replace(
+                "Z",
+                "+00:00",
+            )
+        )
+
+        right_dt = datetime.fromisoformat(
+            right_text.replace(
+                "Z",
+                "+00:00",
+            )
+        )
+
+
+        if (
+            left_dt.tzinfo is not None
+            and right_dt.tzinfo is not None
+        ):
+
+            return (
+                left_dt.astimezone(
+                    timezone.utc
+                )
+                ==
+                right_dt.astimezone(
+                    timezone.utc
+                )
+            )
+
+
+        return (
+            left_dt.replace(
+                tzinfo=None
+            )
+            ==
+            right_dt.replace(
+                tzinfo=None
+            )
+        )
+
+
+    except Exception:
+
+        return False
+
+
+def _load_resumable_staged_full_archive(
+    snapshot: dict,
+):
+    """
+    First use the legacy API-journal recovery.
+
+    If it has no V8.5.3 micro-pipeline entry, find the oldest
+    incomplete FULL archive for this exact closed H1 and reuse
+    that frozen payload.
+
+    This is deliberately oldest-first: it maximizes reuse of
+    already-paid resilient MARKET_MAP/TRADE checkpoints.
+    """
+
+    legacy = (
+        _COST_PREVIOUS_LOAD_RESUMABLE_STAGED_FULL_ARCHIVE(
+            snapshot
+        )
+    )
+
+
+    if legacy is not None:
+        return legacy
+
+
+    current_h1 = (
+        extract_latest_closed_h1_time(
+            snapshot
+        )
+    )
+
+
+    if current_h1 is None:
+        return None
+
+
+    from pathlib import Path as _CostPath
+
+
+    archive_root = (
+        _CostPath(__file__).resolve().parent
+        / "analysis_archive"
+    )
+
+
+    if not archive_root.exists():
+        return None
+
+
+    candidates = []
+
+
+    for archive_path in (
+        archive_root.rglob(
+            "*.json"
+        )
+    ):
+
+        try:
+
+            record = (
+                load_analysis_archive(
+                    archive_path
+                )
+            )
+
+        except Exception:
+
+            continue
+
+
+        cycle_type = str(
+            record.get(
+                "cycle_type"
+            )
+            or ""
+        ).upper()
+
+
+        # Only actual FULL-family cycles.
+        if not (
+            cycle_type == "FULL"
+            or cycle_type.startswith(
+                "FULL_"
+            )
+        ):
+            continue
+
+
+        if not _cost_same_h1(
+            record.get(
+                "h1_closed_bar_time_fp"
+            ),
+            current_h1,
+        ):
+            continue
+
+
+        if not isinstance(
+            record.get(
+                "payload"
+            ),
+            dict,
+        ):
+            continue
+
+
+        # Completed FULL must never be treated as resumable.
+        if isinstance(
+            record.get(
+                "result"
+            ),
+            dict,
+        ):
+            continue
+
+
+        candidates.append(
+            (
+                str(
+                    record.get(
+                        "snapshot_time_fp"
+                    )
+                    or ""
+                ),
+                str(
+                    archive_path
+                ),
+                archive_path,
+                record,
+            )
+        )
+
+
+    if not candidates:
+        return None
+
+
+    # Oldest frozen FULL first.
+    candidates.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+        )
+    )
+
+
+    _, _, archive_path, record = (
+        candidates[0]
+    )
+
+
+    print()
+    print(
+        "[V8.5.3 FULL RESUME] "
+        "Найден незавершённый frozen FULL "
+        "для той же закрытой H1."
+    )
+
+    print(
+        "[V8.5.3 FULL RESUME] "
+        f"Archive: {archive_path}"
+    )
+
+    print(
+        "[V8.5.3 FULL RESUME] "
+        "Новый MARKET_MAP покупать запрещено; "
+        "используется исходный payload/checkpoint."
+    )
+
+
+    return (
+        archive_path,
+        record,
+    )
+
 # ============================================================
 # ENTRY POINT
 # ============================================================
