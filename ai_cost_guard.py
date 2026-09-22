@@ -445,3 +445,214 @@ def paid_m30_enabled() -> bool:
         "yes",
         "on",
     }
+
+# ============================================================================
+# V8.5.3 EVENT-DRIVEN TRADING BUDGET
+# ============================================================================
+#
+# The daily FULL is a baseline analytical cost.
+# It must not consume the only opportunity to evaluate a genuine H1 setup.
+#
+# Rules:
+#   - max 1 new H1 trade-decision pipeline per FP day;
+#   - max 1 new ENTRY_CHECK pipeline per FP day;
+#   - an emergency ceiling still blocks new paid event work after abnormal cost;
+#   - existing FULL / POSITION rules remain unchanged.
+#
+# A TD_CONTEXT usage record is used as the conservative marker that a paid
+# trade-decision pipeline was already started. Retries therefore never create
+# extra budget freedom.
+# ============================================================================
+
+EVENT_HARD_CEILING_USD = 1.30
+MAX_H1_EVENT_DECISIONS_PER_DAY = 1
+MAX_ENTRY_CHECKS_PER_DAY = 1
+
+
+_COST_EVENT_ORIGINAL_INSPECT_CYCLE_BUDGET = (
+    inspect_cycle_budget
+)
+
+
+def _event_pipeline_count_today(
+    family_name: str,
+) -> int:
+
+    state = _load()
+    today = _day_key()
+
+    count = 0
+
+    for record in (
+        state.get("records")
+        or []
+    ):
+
+        if not isinstance(
+            record,
+            dict,
+        ):
+            continue
+
+        if (
+            record.get("fp_day")
+            != today
+        ):
+            continue
+
+        if (
+            str(
+                record.get("family")
+                or ""
+            )
+            != family_name
+        ):
+            continue
+
+        # Every new TRADE_DECISION pipeline starts with TD_CONTEXT.
+        # Counting this stage prevents a second event pipeline from being
+        # purchased after the first one has already started.
+        if (
+            str(
+                record.get("stage")
+                or ""
+            )
+            == "TD_CONTEXT"
+        ):
+            count += 1
+
+    return count
+
+
+def inspect_cycle_budget(
+    cycle: str,
+) -> dict:
+
+    result = (
+        _COST_EVENT_ORIGINAL_INSPECT_CYCLE_BUDGET(
+            cycle
+        )
+    )
+
+    normalized = str(
+        cycle or ""
+    ).upper()
+
+    analysis_spent = float(
+        result.get(
+            "analysis_spent_usd"
+        )
+        or 0.0
+    )
+
+
+    if normalized in {
+        "H1_DECISION",
+        "H1_DECISION_REFRESH",
+    }:
+
+        used = _event_pipeline_count_today(
+            "TRADE_DECISION:H1_DECISION"
+        )
+
+        slot_available = (
+            used
+            < MAX_H1_EVENT_DECISIONS_PER_DAY
+        )
+
+        under_hard_ceiling = (
+            analysis_spent
+            < EVENT_HARD_CEILING_USD
+        )
+
+        result[
+            "event_decisions_used"
+        ] = used
+
+        result[
+            "event_decisions_limit"
+        ] = (
+            MAX_H1_EVENT_DECISIONS_PER_DAY
+        )
+
+        result[
+            "event_hard_ceiling_usd"
+        ] = EVENT_HARD_CEILING_USD
+
+        result[
+            "allowed"
+        ] = bool(
+            slot_available
+            and under_hard_ceiling
+        )
+
+        if not under_hard_ceiling:
+            result[
+                "reason"
+            ] = "event_hard_ceiling_reached"
+
+        elif not slot_available:
+            result[
+                "reason"
+            ] = "daily_h1_event_slot_used"
+
+        else:
+            result[
+                "reason"
+            ] = "daily_h1_event_slot_available"
+
+
+    elif normalized == "ENTRY_CHECK":
+
+        used = _event_pipeline_count_today(
+            "TRADE_DECISION:ENTRY_CHECK"
+        )
+
+        slot_available = (
+            used
+            < MAX_ENTRY_CHECKS_PER_DAY
+        )
+
+        under_hard_ceiling = (
+            analysis_spent
+            < EVENT_HARD_CEILING_USD
+        )
+
+        result[
+            "entry_checks_used"
+        ] = used
+
+        result[
+            "entry_checks_limit"
+        ] = (
+            MAX_ENTRY_CHECKS_PER_DAY
+        )
+
+        result[
+            "event_hard_ceiling_usd"
+        ] = EVENT_HARD_CEILING_USD
+
+        result[
+            "allowed"
+        ] = bool(
+            slot_available
+            and under_hard_ceiling
+        )
+
+        if not under_hard_ceiling:
+            result[
+                "reason"
+            ] = "event_hard_ceiling_reached"
+
+        elif not slot_available:
+            result[
+                "reason"
+            ] = "daily_entry_check_slot_used"
+
+        else:
+            result[
+                "reason"
+            ] = "daily_entry_check_slot_available"
+
+
+    return result

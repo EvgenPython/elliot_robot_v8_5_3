@@ -594,14 +594,15 @@ def inspect_h1_event(
     # 2. Significant known levels.
     # ----------------------------------------------------------
 
+    # IMPORTANT:
+    # Visualization is presentation-only and must never
+    # influence a trading decision or a paid-analysis trigger.
+    #
+    # Only validated analytical/trading fields participate
+    # in the local event gate.
     raw_levels = (
         _collect_price_levels(
             {
-                "visualization": (
-                    analysis.get(
-                        "visualization"
-                    )
-                ),
                 "recommendation": (
                     analysis.get(
                         "recommendation"
@@ -707,8 +708,8 @@ def inspect_h1_event(
 
 
     strong_move = bool(
-        range_fraction >= 0.0035
-        or close_change >= 0.0025
+        range_fraction >= 0.0065
+        or close_change >= 0.0045
     )
 
 
