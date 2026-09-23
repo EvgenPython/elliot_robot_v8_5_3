@@ -6118,6 +6118,262 @@ def _load_resumable_staged_full_archive(
         record,
     )
 
+# ============================================================================
+# V8.5.3 SAME-DAY BASELINE FULL RECOVERY
+# ============================================================================
+
+_V853_PREVIOUS_LOAD_RESUMABLE_FULL = (
+    _load_resumable_staged_full_archive
+)
+
+
+def _v853_parse_fp_datetime(
+    value,
+):
+
+    try:
+
+        dt = datetime.fromisoformat(
+            str(
+                value
+            ).replace(
+                "Z",
+                "+00:00",
+            )
+        )
+
+    except Exception:
+
+        return None
+
+
+    return dt
+
+
+def _load_resumable_staged_full_archive(
+    snapshot: dict,
+):
+
+    # First preserve all existing exact-H1 recovery behavior.
+    exact = (
+        _V853_PREVIOUS_LOAD_RESUMABLE_FULL(
+            snapshot
+        )
+    )
+
+
+    if exact is not None:
+        return exact
+
+
+    # Cross-H1 recovery is allowed ONLY when today's successful FULL
+    # reference is genuinely missing. It must never hijack a later
+    # structural FULL escalation.
+    if (
+        get_fresh_reference_for_snapshot(
+            snapshot
+        )
+        is not None
+    ):
+
+        return None
+
+
+    current_time = (
+        _v853_parse_fp_datetime(
+            snapshot.get(
+                "generated_at_fp"
+            )
+        )
+    )
+
+
+    current_h1 = (
+        _v853_parse_fp_datetime(
+            extract_latest_closed_h1_time(
+                snapshot
+            )
+        )
+    )
+
+
+    if (
+        current_time is None
+        or current_h1 is None
+    ):
+
+        return None
+
+
+    from pathlib import Path as _V853Path
+
+
+    archive_root = (
+        _V853Path(
+            __file__
+        ).resolve().parent
+        / "analysis_archive"
+    )
+
+
+    day_folder = (
+        archive_root
+        / current_time.date().isoformat()
+    )
+
+
+    if not day_folder.exists():
+        return None
+
+
+    candidates = []
+
+
+    for archive_path in (
+        day_folder.glob(
+            "*.json"
+        )
+    ):
+
+        try:
+
+            record = (
+                load_analysis_archive(
+                    archive_path
+                )
+            )
+
+        except Exception:
+
+            continue
+
+
+        if (
+            str(
+                record.get(
+                    "cycle_type"
+                )
+                or ""
+            ).upper()
+            != "FULL_SCHEDULED"
+        ):
+
+            continue
+
+
+        if isinstance(
+            record.get(
+                "result"
+            ),
+            dict,
+        ):
+
+            continue
+
+
+        if not isinstance(
+            record.get(
+                "payload"
+            ),
+            dict,
+        ):
+
+            continue
+
+
+        archived_h1 = (
+            _v853_parse_fp_datetime(
+                record.get(
+                    "h1_closed_bar_time_fp"
+                )
+            )
+        )
+
+
+        if archived_h1 is None:
+            continue
+
+
+        # Baseline must belong to this FP day and must not be from
+        # the future relative to the currently closed H1.
+        if (
+            archived_h1.date()
+            != current_h1.date()
+            or archived_h1
+            > current_h1
+        ):
+
+            continue
+
+
+        age_hours = (
+            (
+                current_h1
+                - archived_h1
+            ).total_seconds()
+            / 3600.0
+        )
+
+
+        if (
+            age_hours < 0
+            or age_hours > 18
+        ):
+
+            continue
+
+
+        candidates.append(
+            (
+                archived_h1,
+                str(
+                    archive_path
+                ),
+                archive_path,
+                record,
+            )
+        )
+
+
+    if not candidates:
+        return None
+
+
+    candidates.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+        )
+    )
+
+
+    _, _, archive_path, record = (
+        candidates[0]
+    )
+
+
+    print()
+    print(
+        "[V8.5.3 DAILY BASELINE RESUME] "
+        "Утренний FULL не завершился."
+    )
+
+    print(
+        "[V8.5.3 DAILY BASELINE RESUME] "
+        f"Возобновляем уже оплаченный frozen FULL: {archive_path}"
+    )
+
+    print(
+        "[V8.5.3 DAILY BASELINE RESUME] "
+        "Новый FULL_FALLBACK MARKET_MAP покупать запрещено."
+    )
+
+
+    return (
+        archive_path,
+        record,
+    )
+
 # ============================================================
 # ENTRY POINT
 # ============================================================

@@ -4203,3 +4203,704 @@ def run_market_map_pipeline(
 
 
     return enriched
+
+# ============================================================================
+# V8.5.3 FVG CONTRACT + WINDOWS STATE WRITE HARDENING
+# ============================================================================
+
+import threading as _v853_threading
+
+
+# ----------------------------------------------------------------------
+# A. Robust local state write.
+#
+# A brief Windows file lock must never be interpreted as a failed Claude
+# analytical response and trigger another paid request.
+# ----------------------------------------------------------------------
+
+_V853_STATE_WRITE_LOCK = (
+    _v853_threading.RLock()
+)
+
+
+def _atomic_write(
+    path: Path,
+    value: dict,
+) -> None:
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    tmp = path.with_name(
+        path.name
+        + "."
+        + str(os.getpid())
+        + "."
+        + str(uuid.uuid4())
+        + ".tmp"
+    )
+
+    with _V853_STATE_WRITE_LOCK:
+
+        try:
+
+            with open(
+                tmp,
+                "w",
+                encoding="utf-8",
+            ) as fh:
+
+                json.dump(
+                    value,
+                    fh,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+
+                fh.flush()
+
+                os.fsync(
+                    fh.fileno()
+                )
+
+
+            delays = (
+                0.0,
+                0.05,
+                0.10,
+                0.20,
+                0.40,
+                0.80,
+            )
+
+            last_error = None
+
+
+            for delay in delays:
+
+                if delay:
+                    time.sleep(
+                        delay
+                    )
+
+                try:
+
+                    os.replace(
+                        tmp,
+                        path,
+                    )
+
+                    return
+
+                except OSError as error:
+
+                    winerror = getattr(
+                        error,
+                        "winerror",
+                        None,
+                    )
+
+                    retryable = (
+                        isinstance(
+                            error,
+                            PermissionError,
+                        )
+                        or winerror
+                        in {
+                            5,
+                            32,
+                            33,
+                        }
+                    )
+
+                    if not retryable:
+                        raise
+
+                    last_error = error
+
+
+            if last_error is not None:
+                raise last_error
+
+            raise RuntimeError(
+                "Atomic state write failed."
+            )
+
+        finally:
+
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                pass
+
+
+# ----------------------------------------------------------------------
+# B. Authoritative active FVG IDs.
+# ----------------------------------------------------------------------
+
+def _v853_active_fvg_ids(
+    payload: dict,
+) -> set[str]:
+
+    facts = (
+        payload.get(
+            "deterministic_market_facts"
+        )
+        or {}
+    )
+
+    imbalances = (
+        facts.get(
+            "imbalances"
+        )
+        or {}
+    )
+
+    result = set()
+
+
+    if not isinstance(
+        imbalances,
+        dict,
+    ):
+        return result
+
+
+    for items in (
+        imbalances.values()
+    ):
+
+        if not isinstance(
+            items,
+            list,
+        ):
+            continue
+
+        for item in items:
+
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
+
+            if (
+                item.get("active")
+                is not True
+            ):
+                continue
+
+            identifier = str(
+                item.get("id")
+                or ""
+            ).strip()
+
+            if identifier:
+                result.add(
+                    identifier
+                )
+
+
+    return result
+
+
+def _v853_selected_fvg_ids(
+    value,
+) -> set[str]:
+
+    return {
+        item.strip()
+
+        for item in str(
+            value or ""
+        ).split(",")
+
+        if item.strip()
+    }
+
+
+# ----------------------------------------------------------------------
+# C. Give TD_REASONING the exact allowed Python IDs without resending
+# raw candle history.
+# ----------------------------------------------------------------------
+
+_V853_PREVIOUS_STAGE_CONTEXT = (
+    _stage_context
+)
+
+
+def _stage_context(
+    *,
+    family: str,
+    spec: StageDef,
+    payload: dict,
+    previous_reference: dict | None,
+    pipeline: dict,
+    market_map: dict | None = None,
+) -> dict:
+
+    context = (
+        _V853_PREVIOUS_STAGE_CONTEXT(
+            family=family,
+            spec=spec,
+            payload=payload,
+            previous_reference=previous_reference,
+            pipeline=pipeline,
+            market_map=market_map,
+        )
+    )
+
+
+    if (
+        str(family).startswith(
+            "TRADE_DECISION"
+        )
+        and spec.name
+        == "TD_REASONING"
+    ):
+
+        context[
+            "allowed_active_fvg_ids"
+        ] = sorted(
+            _v853_active_fvg_ids(
+                payload
+            )
+        )
+
+        context[
+            "fvg_id_contract"
+        ] = (
+            "recommendation.fvg_ids may contain ONLY exact values "
+            "from allowed_active_fvg_ids. Never construct an ID "
+            "from timeframe or price boundaries."
+        )
+
+
+    return context
+
+
+# ----------------------------------------------------------------------
+# D. Reconcile TD_REASONING against deterministic Python IDs BEFORE
+# final business validation.
+#
+# stay_out:
+#   invalid FVG metadata cannot promote an order, therefore discard it
+#   locally at $0 and retain the conservative no-trade decision.
+#
+# enter_long / enter_short:
+#   FVG may be material to the setup. Fail closed and request only the
+#   invalid FVG fields, never the entire market map.
+# ----------------------------------------------------------------------
+
+def _v853_reconcile_reasoning_values(
+    *,
+    pipeline: dict,
+    payload: dict,
+) -> dict:
+
+    stage = (
+        (
+            pipeline.get(
+                "stages"
+            )
+            or {}
+        ).get(
+            "TD_REASONING"
+        )
+        or {}
+    )
+
+    values = (
+        stage.get(
+            "values"
+        )
+        or {}
+    )
+
+
+    selected = (
+        _v853_selected_fvg_ids(
+            values.get(
+                "fvg_ids"
+            )
+        )
+    )
+
+    allowed = (
+        _v853_active_fvg_ids(
+            payload
+        )
+    )
+
+    unknown = (
+        selected
+        - allowed
+    )
+
+
+    if not unknown:
+
+        return {
+            "changed": False,
+            "mode": "valid",
+            "unknown": [],
+        }
+
+
+    action = str(
+        _stage_values(
+            pipeline,
+            "TD_DECISION",
+        ).get(
+            "action"
+        )
+        or ""
+    )
+
+
+    if action == "stay_out":
+
+        values[
+            "fvg_role"
+        ] = "neutral"
+
+        values[
+            "fvg_ids"
+        ] = ""
+
+        values[
+            "fvg_basis"
+        ] = (
+            "EN: Non-authoritative FVG identifiers were discarded "
+            "by deterministic Python validation; FVG is not used "
+            "to justify an entry.\n"
+            "RU: Неавторитетные идентификаторы FVG отброшены "
+            "детерминированной проверкой Python; FVG не используется "
+            "как основание для входа."
+        )
+
+        mode = (
+            "stay_out_local_canonicalization"
+        )
+
+    else:
+
+        values.pop(
+            "fvg_ids",
+            None,
+        )
+
+        values.pop(
+            "fvg_basis",
+            None,
+        )
+
+        if not allowed:
+
+            values.pop(
+                "fvg_role",
+                None,
+            )
+
+        mode = (
+            "entry_requires_exact_fvg_retry"
+        )
+
+
+    stage[
+        "values"
+    ] = values
+
+
+    return {
+        "changed": True,
+        "mode": mode,
+        "unknown": sorted(
+            unknown
+        ),
+        "allowed": sorted(
+            allowed
+        ),
+    }
+
+
+_V853_PREVIOUS_RUN_STAGE = (
+    _run_stage
+)
+
+
+def _run_stage(
+    *,
+    state: dict,
+    pipeline: dict,
+    family: str,
+    spec: StageDef,
+    all_specs: tuple[StageDef, ...],
+    stage_index: int,
+    stage_total: int,
+    payload: dict,
+    previous_reference: dict | None,
+    market_map: dict | None,
+) -> dict:
+
+    if (
+        spec.name
+        == "TD_REASONING"
+    ):
+
+        pre = (
+            _v853_reconcile_reasoning_values(
+                pipeline=pipeline,
+                payload=payload,
+            )
+        )
+
+        if pre.get(
+            "changed"
+        ):
+
+            stage = (
+                _ensure_stage(
+                    pipeline,
+                    spec,
+                )
+            )
+
+            stage[
+                "status"
+            ] = (
+                "PARTIAL"
+                if stage.get(
+                    "values"
+                )
+                else "PENDING"
+            )
+
+            stage[
+                "missing_fields"
+            ] = [
+                name
+                for name
+                in spec.properties
+                if name not in (
+                    stage.get(
+                        "values"
+                    )
+                    or {}
+                )
+            ]
+
+            _invalidate_dependency_descendants(
+                pipeline=pipeline,
+                specs=all_specs,
+                source_stage=spec.name,
+                reason=(
+                    "Deterministic FVG contract correction: "
+                    + pre.get(
+                        "mode",
+                        "",
+                    )
+                ),
+            )
+
+            _save_state(
+                state
+            )
+
+
+            # stay_out was corrected locally and all required fields remain.
+            if (
+                pre.get(
+                    "mode"
+                )
+                == "stay_out_local_canonicalization"
+            ):
+
+                stage[
+                    "status"
+                ] = "VALIDATED"
+
+                _save_state(
+                    state
+                )
+
+
+    result = (
+        _V853_PREVIOUS_RUN_STAGE(
+            state=state,
+            pipeline=pipeline,
+            family=family,
+            spec=spec,
+            all_specs=all_specs,
+            stage_index=stage_index,
+            stage_total=stage_total,
+            payload=payload,
+            previous_reference=previous_reference,
+            market_map=market_map,
+        )
+    )
+
+
+    if not (
+        spec.name
+        == "TD_REASONING"
+        and isinstance(
+            result,
+            dict,
+        )
+        and result.get(
+            "ok"
+        )
+    ):
+
+        return result
+
+
+    post = (
+        _v853_reconcile_reasoning_values(
+            pipeline=pipeline,
+            payload=payload,
+        )
+    )
+
+
+    if not post.get(
+        "changed"
+    ):
+
+        return result
+
+
+    stage = (
+        _ensure_stage(
+            pipeline,
+            spec,
+        )
+    )
+
+
+    _invalidate_dependency_descendants(
+        pipeline=pipeline,
+        specs=all_specs,
+        source_stage=spec.name,
+        reason=(
+            "Post-response deterministic FVG contract correction: "
+            + post.get(
+                "mode",
+                "",
+            )
+        ),
+    )
+
+
+    if (
+        post.get(
+            "mode"
+        )
+        == "stay_out_local_canonicalization"
+    ):
+
+        stage[
+            "status"
+        ] = "VALIDATED"
+
+        stage[
+            "missing_fields"
+        ] = []
+
+        _save_state(
+            state
+        )
+
+        return {
+            **result,
+            "values": copy.deepcopy(
+                stage.get(
+                    "values"
+                )
+                or {}
+            ),
+            "local_fvg_canonicalization": True,
+        }
+
+
+    # A trading entry may not silently use a fabricated FVG identifier.
+    # Convert the just-finished request into a local-invalid attempt and let
+    # the resilient engine request only the missing FVG fields.
+    attempts = stage.setdefault(
+        "attempts",
+        [],
+    )
+
+
+    if attempts:
+
+        last = attempts[-1]
+
+        if (
+            last.get(
+                "status"
+            )
+            in {
+                "VALIDATED_RESPONSE",
+                "RECOVERED_FROM_PARTIAL",
+            }
+        ):
+
+            last[
+                "status"
+            ] = "FAILED_INVALID"
+
+            last[
+                "failure_class"
+            ] = (
+                "INVALID_FVG_ID"
+            )
+
+            last[
+                "error"
+            ] = (
+                "TD_REASONING returned FVG IDs outside "
+                "allowed_active_fvg_ids."
+            )
+
+
+    stage[
+        "status"
+    ] = "PARTIAL"
+
+    stage[
+        "missing_fields"
+    ] = [
+        name
+        for name
+        in spec.properties
+        if name not in (
+            stage.get(
+                "values"
+            )
+            or {}
+        )
+    ]
+
+
+    _save_state(
+        state
+    )
+
+
+    return _run_stage(
+        state=state,
+        pipeline=pipeline,
+        family=family,
+        spec=spec,
+        all_specs=all_specs,
+        stage_index=stage_index,
+        stage_total=stage_total,
+        payload=payload,
+        previous_reference=previous_reference,
+        market_map=market_map,
+    )
