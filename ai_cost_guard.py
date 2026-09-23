@@ -656,3 +656,176 @@ def inspect_cycle_budget(
 
 
     return result
+
+# ============================================================================
+# V8.5.3 M30 PRIMARY RUNTIME BUDGET
+# ============================================================================
+
+M30_PRIMARY_MODE = True
+
+# Initial DEMO policy:
+# at most two genuinely-triggered paid M30 decision pipelines per FP day.
+MAX_M30_EVENT_DECISIONS_PER_DAY = 2
+
+
+_M30_PRIMARY_PREVIOUS_INSPECT_CYCLE_BUDGET = (
+    inspect_cycle_budget
+)
+
+
+def paid_m30_enabled() -> bool:
+    """
+    M30-primary is ON by default.
+
+    Explicit environment override may still disable it:
+    ROBOT_ENABLE_PAID_M30=0/false/no/off
+    """
+
+    raw = str(
+        os.getenv(
+            "ROBOT_ENABLE_PAID_M30",
+            "",
+        )
+    ).strip().lower()
+
+
+    if not raw:
+        return True
+
+
+    return raw in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def inspect_cycle_budget(
+    cycle: str,
+) -> dict:
+
+    result = (
+        _M30_PRIMARY_PREVIOUS_INSPECT_CYCLE_BUDGET(
+            cycle
+        )
+    )
+
+
+    normalized = str(
+        cycle or ""
+    ).upper()
+
+
+    analysis_spent = float(
+        result.get(
+            "analysis_spent_usd"
+        )
+        or 0.0
+    )
+
+
+    # H1 now owns structural validation only.
+    # New entry opportunities belong to M30-primary.
+    if normalized in {
+        "H1_DECISION",
+        "H1_DECISION_REFRESH",
+    }:
+
+        result["allowed"] = False
+
+        result[
+            "reason"
+        ] = "m30_primary_h1_entry_disabled"
+
+        result[
+            "m30_primary_mode"
+        ] = True
+
+        return result
+
+
+    if normalized in {
+        "M30",
+        "M30_DECISION",
+        "M30_DECISION_REFRESH",
+    }:
+
+        used = (
+            _event_pipeline_count_today(
+                "TRADE_DECISION:M30_DECISION"
+            )
+        )
+
+
+        enabled = (
+            paid_m30_enabled()
+        )
+
+
+        slot_available = (
+            used
+            < MAX_M30_EVENT_DECISIONS_PER_DAY
+        )
+
+
+        under_hard_ceiling = (
+            analysis_spent
+            < EVENT_HARD_CEILING_USD
+        )
+
+
+        result[
+            "m30_primary_mode"
+        ] = True
+
+        result[
+            "m30_decisions_used"
+        ] = used
+
+        result[
+            "m30_decisions_limit"
+        ] = (
+            MAX_M30_EVENT_DECISIONS_PER_DAY
+        )
+
+        result[
+            "event_hard_ceiling_usd"
+        ] = EVENT_HARD_CEILING_USD
+
+
+        result[
+            "allowed"
+        ] = bool(
+            enabled
+            and slot_available
+            and under_hard_ceiling
+        )
+
+
+        if not enabled:
+
+            result[
+                "reason"
+            ] = "paid_m30_explicitly_disabled"
+
+        elif not under_hard_ceiling:
+
+            result[
+                "reason"
+            ] = "event_hard_ceiling_reached"
+
+        elif not slot_available:
+
+            result[
+                "reason"
+            ] = "daily_m30_event_slots_used"
+
+        else:
+
+            result[
+                "reason"
+            ] = "daily_m30_event_slot_available"
+
+
+    return result

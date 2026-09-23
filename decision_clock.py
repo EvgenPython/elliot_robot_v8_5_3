@@ -15,6 +15,8 @@ from pathlib import Path
 from instruments import active_instrument, symbol_state_path
 from market_data import TIMEFRAMES, get_closed_bars
 from prop_time import FUNDINGPIPS_TZ, now_fp
+from analysis_state import load_analysis_state
+from ai_local_event_gate import was_h1_evaluated
 
 
 SYMBOL = active_instrument()
@@ -91,10 +93,70 @@ def inspect_m30_decision_due(
     m30_open = latest_closed_m30_time(symbol)
     m30_close = m30_open + timedelta(minutes=30)
     age = (current - m30_close).total_seconds()
-    # At xx:30 the latest closed M30 opened at xx:00.  At xx:00 the latest
-    # M30 opened at xx-1:30 and the ordinary closed-H1 cycle owns the decision.
-    intermediate_half_hour = m30_close.minute == 30
-    fresh = MIN_SECONDS_AFTER_M30_CLOSE <= age <= MAX_CLOSED_M30_AGE_SECONDS
+    # V8.5.3 M30 PRIMARY EVERY CLOSED M30
+    #
+    # Every CLOSED M30 can own an entry decision.
+    #
+    # At xx:00 the freshly closed H1 must first pass its structural cycle.
+    # Runner polls again ~10 sec later; only then may the same xx:00 M30
+    # become an entry-decision clock.
+    #
+    # At xx:30 there is no new H1 close, therefore M30 may proceed directly.
+
+    top_of_hour = (
+        m30_close.minute == 0
+    )
+
+    intermediate_half_hour = (
+        m30_close.minute == 30
+    )
+
+    fresh = (
+        MIN_SECONDS_AFTER_M30_CLOSE
+        <= age
+        <= MAX_CLOSED_M30_AGE_SECONDS
+    )
+
+    latest_h1 = str(
+        market_gate.get(
+            "latest_closed_h1_time"
+        )
+        or ""
+    )
+
+    h1_structural_ready = True
+
+
+    if top_of_hour:
+
+        analysis_state = (
+            load_analysis_state()
+        )
+
+        completed_h1 = str(
+            analysis_state.get(
+                "last_analyzed_h1"
+            )
+            or ""
+        )
+
+        fully_processed = bool(
+            latest_h1
+            and completed_h1
+            == latest_h1
+        )
+
+        locally_processed = bool(
+            latest_h1
+            and was_h1_evaluated(
+                latest_h1
+            )
+        )
+
+        h1_structural_ready = bool(
+            fully_processed
+            or locally_processed
+        )
     state = load_m30_decision_state()
     m30_key = m30_open.isoformat()
     already_completed = str(state.get("last_completed_m30")) == m30_key
@@ -116,8 +178,14 @@ def inspect_m30_decision_due(
         reasons.append("Вне окна новых торговых идей.")
     if not bool(market_gate.get("tick_fresh")):
         reasons.append("Последний MT5 tick устарел.")
-    if not intermediate_half_hour:
-        reasons.append("Это часовое закрытие; решение принадлежит H1 cycle.")
+    if (
+        top_of_hour
+        and not h1_structural_ready
+    ):
+        reasons.append(
+            "Сначала должна завершиться структурная H1-проверка; "
+            "после неё закрытая M30 получит своё entry decision."
+        )
     if not fresh:
         reasons.append(
             f"Закрытая M30 не свежая: age={age:.1f}s, "
@@ -134,7 +202,10 @@ def inspect_m30_decision_due(
         "m30_open_time_fp": m30_key,
         "m30_close_time_fp": m30_close.isoformat(),
         "m30_age_from_close_seconds": age,
+        "top_of_hour": top_of_hour,
         "intermediate_half_hour": intermediate_half_hour,
+        "h1_structural_ready": h1_structural_ready,
+        "latest_h1_time_fp": latest_h1,
         "fresh": fresh,
         "already_completed": already_completed,
         "retry_after_seconds": retry_wait,

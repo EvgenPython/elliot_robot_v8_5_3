@@ -1373,6 +1373,129 @@ def run_m30_decision_cycle(
             "M15 подтверждает структуру, M5 уточняет trigger."
         )
 
+        # V8.5.3 M30 PRIMARY FREE EVENT GATE
+        from ai_local_m30_gate import (
+            inspect_m30_event,
+        )
+        from ai_cost_guard import (
+            inspect_cycle_budget,
+        )
+
+        m30_gate = inspect_m30_event(
+            snapshot,
+            previous_reference,
+        )
+
+        print()
+        print("=" * 80)
+        print("LOCAL M30 EVENT GATE - $0")
+        print("=" * 80)
+        print(
+            "Possible setup: "
+            f"{m30_gate.get('possible_setup')}"
+        )
+        print(
+            "Trigger:        "
+            f"{m30_gate.get('trigger_kind')}"
+        )
+        print(
+            "Structure warn: "
+            f"{m30_gate.get('structural_warning')}"
+        )
+        print("Claude cost:    $0")
+        print("=" * 80)
+
+        try:
+            gate_archive = save_analysis_archive(
+                snapshot=snapshot,
+                cycle_type="LOCAL_M30_EVENT_GATE",
+                payload=build_scout_payload(
+                    snapshot=snapshot,
+                    previous_reference=previous_reference,
+                ),
+                result=m30_gate,
+                previous_reference=previous_reference,
+                note=(
+                    "Deterministic local M30 event gate. "
+                    "No Claude API request was made."
+                ),
+            )
+
+        except Exception as error:
+            print(
+                "[M30 COST SAFETY] "
+                "Local M30 gate archive failed; "
+                "paid Claude is NOT started: "
+                f"{type(error).__name__}: {error}"
+            )
+
+            return {
+                "ok": False,
+                "reason": "LOCAL_M30_GATE_ARCHIVE_FAILED",
+                "error": str(error),
+                "order_send_called": False,
+            }
+
+        if not m30_gate.get(
+            "possible_setup"
+        ):
+            print()
+            print(
+                "[LOCAL M30 NO EVENT] "
+                "No sufficient event on closed M30."
+            )
+            print(
+                "[LOCAL M30 NO EVENT] "
+                "Claude API is NOT called."
+            )
+
+            return {
+                "ok": True,
+                "reason": "LOCAL_M30_NO_EVENT",
+                "gate_archive": str(
+                    gate_archive
+                ),
+                "order_send_called": False,
+            }
+
+        m30_budget = inspect_cycle_budget(
+            "M30_DECISION"
+        )
+
+        print()
+        print(
+            "[M30 COST BUDGET] "
+            f"spent=${m30_budget.get('analysis_spent_usd')}; "
+            f"slots={m30_budget.get('m30_decisions_used', 0)}/"
+            f"{m30_budget.get('m30_decisions_limit', 0)}; "
+            f"reason={m30_budget.get('reason')}."
+        )
+
+        if not m30_budget.get(
+            "allowed"
+        ):
+            print(
+                "[M30 COST BUDGET] "
+                "Paid M30 decision is NOT started."
+            )
+
+            return {
+                "ok": True,
+                "reason": "M30_BUDGET_BLOCKED",
+                "budget": m30_budget,
+                "gate_archive": str(
+                    gate_archive
+                ),
+                "order_send_called": False,
+            }
+
+        print()
+        print(
+            "[LOCAL M30 EVENT -> CLAUDE] "
+            "M30 event confirmed; bounded "
+            "M30 trade decision is allowed."
+        )
+
         resume = _load_m30_decision_archive(snapshot)
         if resume is not None:
             archive_path, archived_record = resume

@@ -200,7 +200,7 @@ def _print_runner_header():
         "при событии -> глубокий FULL."
     )
     print(
-        "[POLICY] Между H1: одна дополнительная M30 decision в xx:30; "
+        "[POLICY] M30-primary: каждая закрытая M30 может дать entry decision; "
         "M15 подтверждает, M5 уточняет trigger."
     )
     print(

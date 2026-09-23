@@ -4904,3 +4904,201 @@ def _run_stage(
         previous_reference=previous_reference,
         market_map=market_map,
     )
+
+# ============================================================================
+# V8.5.3 M30 PRIMARY DECISION POLICY
+# ============================================================================
+
+M30_PRIMARY_POLICY_VERSION = "m30_primary_v1"
+
+
+_M30_PRIMARY_STAGE_SUFFIX = {
+
+    "TD_CONTEXT": r"""
+M30 PRIMARY POLICY:
+
+D1/H4/H1 are structural CONTEXT, not a requirement that every timeframe
+must point in exactly the same direction before any trade is possible.
+
+The last CLOSED M30 is the primary decision timeframe for a new trade.
+
+Evaluate the M30 independently inside the validated higher-timeframe map:
+- pullback continuation;
+- wave continuation;
+- correction leg or correction completion;
+- range boundary trade;
+- breakout + retest;
+- false breakout / liquidity sweep;
+- pattern continuation or reversal;
+- transition setup.
+
+M15 confirms or rejects the M30 structure.
+M5 is used only for entry timing and micro confirmation.
+
+Do NOT require perfect D1/H4/H1/M30/M15/M5 alignment.
+A normal lower-timeframe correction inside a valid higher-timeframe
+scenario is tradable when the setup has a clear structural invalidation
+and a realistic target.
+
+A closed M30 may provide sufficient confirmation without waiting for
+the next H1 close.
+""",
+
+    "TD_DECISION": r"""
+M30 PRIMARY DECISION RULES:
+
+The CLOSED M30 owns the entry decision.
+
+An entry is allowed when:
+1. the validated D1/H4/H1 map has NOT been structurally invalidated;
+2. M30 has an objective setup and location;
+3. M15 does not contradict the setup and provides sufficient confirmation;
+4. M5 timing is not clearly late or invalid;
+5. Entry, structural Stop Loss, invalidation and achievable target are clear.
+
+IMPORTANT:
+- setup_quality=acceptable is allowed;
+- entry_quality=fair is allowed;
+- confidence=medium is allowed;
+- perfect multi-timeframe alignment is NOT required;
+- FVG is NOT required for an entry;
+- a trade may follow either the validated primary scenario or a clearly
+  identified alternate/corrective scenario;
+- do not reject a setup solely because D1/H4 direction differs from the
+  active M30 correction, provided the trade is explicitly treated as a
+  correction/reversal setup with tight structural invalidation.
+
+Still reject:
+- weak setup;
+- poor entry;
+- no objective structural stop;
+- already exhausted/late move;
+- impossible or clearly inadequate target;
+- unresolved structural contradiction;
+- broken higher-timeframe invalidation.
+
+Use stay_out only when there is a concrete market reason.
+Do not use stay_out merely because the setup is not perfect.
+""",
+
+    "TD_REASONING": r"""
+M30 PRIMARY RATIONALE:
+
+Explain why the CLOSED M30 does or does not have tradable edge NOW.
+
+Clearly separate:
+- higher-timeframe context;
+- M30 setup;
+- M15 confirmation;
+- M5 timing.
+
+FVG is optional confluence, never a mandatory condition.
+If no relevant active Python FVG exists, use no_relevant_fvg or neutral
+instead of rejecting an otherwise valid M30 setup.
+
+Do not demand another H1 close when the closed M30 already provides the
+required setup confirmation.
+""",
+}
+
+
+def _m30_primary_spec(
+    spec: StageDef,
+) -> StageDef:
+
+    suffix = (
+        _M30_PRIMARY_STAGE_SUFFIX.get(
+            spec.name
+        )
+    )
+
+    if not suffix:
+        return spec
+
+    return StageDef(
+        name=spec.name,
+
+        properties=copy.deepcopy(
+            spec.properties
+        ),
+
+        instructions=(
+            spec.instructions
+            + "\n\n"
+            + suffix.strip()
+        ),
+
+        max_tokens=spec.max_tokens,
+
+        effort=spec.effort,
+
+        timeframes=tuple(
+            spec.timeframes
+        ),
+
+        fact_timeframes=tuple(
+            spec.fact_timeframes
+        ),
+
+        dependencies=tuple(
+            spec.dependencies
+        ),
+    )
+
+
+_M30_PRIMARY_PREVIOUS_RUN_STAGE = (
+    _run_stage
+)
+
+
+def _run_stage(
+    *,
+    state: dict,
+    pipeline: dict,
+    family: str,
+    spec: StageDef,
+    all_specs: tuple[StageDef, ...],
+    stage_index: int,
+    stage_total: int,
+    payload: dict,
+    previous_reference: dict | None,
+    market_map: dict | None,
+) -> dict:
+
+    is_m30_primary = (
+        str(family).upper()
+        == "TRADE_DECISION:M30_DECISION"
+    )
+
+
+    effective_spec = (
+        _m30_primary_spec(spec)
+        if is_m30_primary
+        else spec
+    )
+
+
+    effective_specs = (
+        tuple(
+            _m30_primary_spec(item)
+            for item in all_specs
+        )
+        if is_m30_primary
+        else all_specs
+    )
+
+
+    return (
+        _M30_PRIMARY_PREVIOUS_RUN_STAGE(
+            state=state,
+            pipeline=pipeline,
+            family=family,
+            spec=effective_spec,
+            all_specs=effective_specs,
+            stage_index=stage_index,
+            stage_total=stage_total,
+            payload=payload,
+            previous_reference=previous_reference,
+            market_map=market_map,
+        )
+    )
