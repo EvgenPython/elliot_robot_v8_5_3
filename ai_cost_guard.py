@@ -464,7 +464,7 @@ def paid_m30_enabled() -> bool:
 # extra budget freedom.
 # ============================================================================
 
-EVENT_HARD_CEILING_USD = 1.30
+EVENT_HARD_CEILING_USD = 2.50
 MAX_H1_EVENT_DECISIONS_PER_DAY = 1
 MAX_ENTRY_CHECKS_PER_DAY = 1
 
