@@ -2348,6 +2348,7 @@ def run_market_map_pipeline(
     }
 
 
+# V8.5.3 REFRESH DECISION CONTRACT FIX
 def _validate_trade_business_contract(
     *,
     payload: dict,
@@ -2355,15 +2356,60 @@ def _validate_trade_business_contract(
     trade_decision: dict,
     previous_reference: dict | None,
 ) -> dict:
-    # Local import avoids introducing a module-initialization dependency.
-    from claude_staged_client import assemble_staged_analysis
+    """
+    Validate two different legitimate contracts:
 
-    return assemble_staged_analysis(
-        payload=payload,
-        market_map=market_map,
-        trade_decision=trade_decision,
-        previous_reference=previous_reference,
+    1. FULL_DECISION receives the raw MARKET_MAP contract.
+       It contains wave_revision and must use assemble_staged_analysis().
+
+    2. H1/M30/ENTRY refresh receives the already assembled, validated
+       FULL reference analysis. That object intentionally has no
+       wave_revision and must use the refresh assembler instead.
+
+    Both paths still run the deterministic Python FVG validation.
+    """
+
+    from claude_staged_client import (
+        assemble_staged_analysis,
+        _validate_fvg_selection,
     )
+
+
+    # Raw MARKET_MAP used by FULL.
+    if isinstance(
+        market_map.get("wave_revision"),
+        dict,
+    ):
+
+        return assemble_staged_analysis(
+            payload=payload,
+            market_map=market_map,
+            trade_decision=trade_decision,
+            previous_reference=previous_reference,
+        )
+
+
+    # Already assembled FULL reference used by H1/M30/ENTRY refresh.
+    from entry_check_cycle import (
+        assemble_entry_refresh_analysis,
+    )
+
+
+    analysis = assemble_entry_refresh_analysis(
+        reference_analysis=market_map,
+        decision=trade_decision,
+        payload=payload,
+    )
+
+
+    # Preserve the strict deterministic FVG contract for refresh decisions.
+    _validate_fvg_selection(
+        analysis,
+        payload,
+    )
+
+
+    return analysis
 
 
 def run_trade_decision_pipeline(
